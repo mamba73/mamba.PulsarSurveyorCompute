@@ -12,7 +12,7 @@ namespace Plugin.Services
     public class GpsManagerService
     {
         private readonly ConfigService _config;
-        private readonly HashSet<Vector3I> _detectedLocations = new HashSet<Vector3I>();
+        private readonly Dictionary<Vector3I, IMyGps> _sectorGpsMap = new Dictionary<Vector3I, IMyGps>();
 
         public GpsManagerService(ConfigService config)
         {
@@ -25,19 +25,13 @@ namespace Plugin.Services
 
             float radius = _config.Data.SurveyRadius;
             Vector3D shipPos = ship.GetPosition();
-
-            // Create the search sphere
             BoundingSphereD searchSphere = new BoundingSphereD(shipPos, radius);
 
-            // Fix: Use GetTopMostEntitiesInSphere for ModAPI compatibility
             List<IMyEntity> entities = MyAPIGateway.Entities.GetTopMostEntitiesInSphere(ref searchSphere);
 
             foreach (var entity in entities)
             {
-                // Cast to concrete MyVoxelBase to access material extension methods
                 var voxel = entity as MyVoxelBase;
-
-                // Ignore nulls and planets (planets are too large for this specific scan method)
                 if (voxel == null || voxel is MyPlanet) continue;
 
                 ScanVoxelDetails(voxel, shipPos);
@@ -46,31 +40,57 @@ namespace Plugin.Services
 
         private void ScanVoxelDetails(MyVoxelBase voxel, Vector3D shipPos)
         {
-            // VoxelBaseExtensions.GetMaterialAt requires a MyVoxelBase receiver
             Vector3D worldPos = shipPos;
             var material = voxel.GetMaterialAt(ref worldPos);
 
             if (material != null && !material.Id.SubtypeName.Contains("Stone"))
             {
-                CreateTemporaryGps(material.Id.SubtypeName, shipPos);
+                UpdateOrCreateInfo(material.Id.SubtypeName, shipPos);
             }
         }
 
-        private void CreateTemporaryGps(string oreName, Vector3D position)
+        private void UpdateOrCreateInfo(string oreName, Vector3D position)
         {
-            // Group detections into 100m sectors to prevent GPS marker spam
-            Vector3I sector = new Vector3I(position / 100);
-            if (_detectedLocations.Add(sector))
+            Vector3I sector = new Vector3I(position / 200);
+
+            if (_sectorGpsMap.ContainsKey(sector))
             {
-                var gps = MyAPIGateway.Session.GPS.Create(
+                var existingGps = _sectorGpsMap[sector];
+
+                if (!existingGps.Name.Contains(oreName))
+                {
+                    // Update the local object
+                    existingGps.Name += $", {oreName}";
+
+                    // Force HUD refresh: Remove and re-add is the most reliable ModAPI method
+                    MyAPIGateway.Session.GPS.RemoveLocalGps(existingGps.Hash);
+                    MyAPIGateway.Session.GPS.AddLocalGps(existingGps);
+                }
+            }
+            else
+            {
+                var newGps = MyAPIGateway.Session.GPS.Create(
                     $"[Pulsar] {oreName}",
-                    "Detected by Pulsar Surveyor",
+                    "Pulsar Composite Scan",
                     position,
                     true,
                     true);
 
-                MyAPIGateway.Session.GPS.AddLocalGps(gps);
+                MyAPIGateway.Session.GPS.AddLocalGps(newGps);
+                _sectorGpsMap.Add(sector, newGps);
             }
+        }
+
+        public void ClearScanData()
+        {
+            // Remove markers from the game world first
+            foreach (var gps in _sectorGpsMap.Values)
+            {
+                MyAPIGateway.Session.GPS.RemoveLocalGps(gps.Hash);
+            }
+
+            _sectorGpsMap.Clear();
+            MyAPIGateway.Utilities.ShowNotification("Pulsar Scan Data Cleared", 2000, MyFontEnum.Green);
         }
     }
 }

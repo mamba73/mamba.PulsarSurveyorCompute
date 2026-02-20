@@ -31,7 +31,8 @@ namespace Plugin
             _flightComputer = new FlightComputerService(_physics, _config);
             _telemetry = new TelemetryService(_config);
             _gpsManager = new GpsManagerService(_config);
-            _inputHandler = new InputHandlerService(_config, _physics);
+            // _inputHandler = new InputHandlerService(_config, _physics);
+            _inputHandler = new InputHandlerService(_config, _physics, _gpsManager);
             _hudDisplay = new HudDisplayService(_config);
         }
 
