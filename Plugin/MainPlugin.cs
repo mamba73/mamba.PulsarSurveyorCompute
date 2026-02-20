@@ -31,7 +31,6 @@ namespace Plugin
             _flightComputer = new FlightComputerService(_physics, _config);
             _telemetry = new TelemetryService(_config);
             _gpsManager = new GpsManagerService(_config);
-            // _inputHandler = new InputHandlerService(_config, _physics);
             _inputHandler = new InputHandlerService(_config, _physics, _gpsManager);
             _hudDisplay = new HudDisplayService(_config);
         }
@@ -43,20 +42,25 @@ namespace Plugin
             var ship = MyAPIGateway.Session.Player.Controller?.ControlledEntity as IMyShipController;
             if (ship == null) return;
 
-            // 1. Calculations
-            _flightComputer.DrawBrakingTunnel(ship);
+            // 1. Calculations & Input
             _lastAltitude = _telemetry.GetAltitude(ship);
-            _inputHandler.Update(ship, ref _lastRange); // Pass range back by ref
+            _inputHandler.Update(ship, ref _lastRange);
 
             // 2. Physics Data
-            // float mass = (ship.CubeGrid as VRage.Game.Entity.MyEntity).Physics.Mass;
             var entity = ship.CubeGrid as VRage.Game.Entity.MyEntity;
             float mass = entity?.Physics?.Mass ?? 0f;
             float maxDecel = _physics.CalculateMaxDeceleration(ship);
 
-            // 3. Render HUD
-            _hudDisplay.Draw(mass, maxDecel, _lastAltitude, _lastRange);
+            // Calculate stopping distance once
+            float stopDist = _physics.CalculateStoppingDistance(ship);
 
+            // 3. Collision Logic & Visuals
+            // Draw tunnel and check if a collision is detected within braking range
+            _flightComputer.DrawBrakingTunnel(ship);
+            bool isWarning = _flightComputer.CheckCollision(ship, stopDist);
+
+            // 4. Render HUD & World Scan
+            _hudDisplay.Draw(mass, maxDecel, _lastAltitude, _lastRange, isWarning);
             _gpsManager.ScanForVoxels(ship);
         }
 

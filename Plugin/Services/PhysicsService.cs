@@ -29,9 +29,22 @@ namespace Plugin.Services
             return mass > 0 ? totalThrust / mass : 0f;
         }
 
+        public float CalculateStoppingDistance(IMyShipController ship)
+        {
+            if (ship == null) return 0f;
+
+            double velocity = ship.GetShipSpeed();
+            float maxDecel = CalculateMaxDeceleration(ship);
+
+            if (maxDecel <= 0) return 0f;
+
+            // Physics formula: s = v^2 / (2 * a)
+            return (float)((velocity * velocity) / (2 * maxDecel));
+        }
+
         public bool IsCollisionImminent(IMyShipController ship, double distance)
         {
-            if (ship == null) return false;
+            if (ship == null || distance <= 0) return false;
 
             Vector3D start = ship.GetPosition();
             Vector3D end = start + (ship.WorldMatrix.Forward * distance);
@@ -64,6 +77,5 @@ namespace Plugin.Services
 
             return -1;
         }
-
     }
 }

@@ -1,77 +1,79 @@
+"""
 # mamba.PulsarSurveyorCompute
 
 ---
-**NOTE: This project is in active development.** High-fidelity flight computations for Space Engineers.
+**NOTE: Project Milestone Reached.** Pulsar Surveyor v1.0 is now a fully integrated flight and resource management system.
 
-An advanced client-side plugin for Space Engineers providing real-time trajectory analysis, predictive braking assistance, and planetary telemetry.
+An advanced client-side plugin for Space Engineers providing real-time trajectory analysis, predictive braking assistance, and smart planetary/asteroid surveying.
 
-Unlike standard scripts, Pulsar is a standalone plugin that leverages deep game engine hooks to calculate ship physics, predict collision paths via 3D rendering, and provide a configurable HUD for deep-space surveying.
+Unlike standard scripts, Pulsar is a standalone plugin that leverages deep game engine hooks to calculate ship physics, predict collision paths via 3D rendering, and provides a spatial-hashing system for composite ore detection.
 
 **C#**: 4.7.2+ / .NET Framework 4.8  
 **Space Engineers**: 1.204+  
 **Author**: mamba  
-**Version**: 1.0.45
+**Version**: 1.0.52
 
 ---
-## 🚀 Project Status: Stable Core
+## 🚀 Project Status: Feature Complete (v1.0)
 
 | Feature | Status | Notes |
 | :--- | :---: | :--- |
 | **Modular Architecture** | ✅ Done | Service-oriented injection (Physics, Telemetry, Input). |
-| **Config Handling (XML)** | ✅ Done | Zero hardcoded values. Everything via config.xml. |
 | **Trajectory Tunnel** | ✅ Done | Predictive 3D visualization of braking distance. |
-| **Physics Service** | ✅ Done | Accurate Mass/Deceleration calculations. |
-| **Planet Telemetry** | ✅ Done | Real-time altitude and gravity detection. |
+| **Smart GPS Surveying** | ✅ Done | Sector-based grouping of ores (e.g., "Iron, Gold"). |
+| **Anti-Spam Logic** | ✅ Done | Spatial hashing (200m) to prevent GPS marker flood. |
 | **Laser Rangefinder** | ✅ Done | Hotkey-based raycast distance measurement. |
-| **HUD Overlay** | ✅ Done | Configurable screen position for critical flight data. |
-| **Ore Surveyor** | 🚧 In Progress | Auto-mapping asteroid resources within radius. |
-| **Dynamic Collision Warn** | ⏳ Planned | Audio-visual proximity alerts based on velocity. |
+| **Planet Telemetry** | ✅ Done | Real-time "True Altitude" and gravity detection. |
+| **HUD Overlay** | ✅ Done | Live telemetry: Mass, Deceleration, Altitude, Range. |
+| **Manual Reset** | ✅ Done | `Shift + Hotkey` to clear all scan data and markers. |
+| **Collision Warning** | ✅ Done | Audio-visual proximity alerts for impact. |
 
 ---
 ## 🌟 Key Features
 
 ---
 ### 🟦 Predictive Trajectory Tunnel
-A dynamic 3D visual guide that appears when the ship is in motion.
-- **Physics Based:** The tunnel length adjusts in real-time based on your current velocity and the maximum deceleration capacity of your thrusters.
-- **Safety Indicators:** Changes color (Green/Orange/Red) based on collision detection with asteroids or planet surfaces.
-- **Configurable:** Adjust transparency, scale, and material via configuration.
+A dynamic 3D visual guide that projects your stop path.
+- **Physics Driven:** Tunnel length is calculated using `(Velocity² / (2 * MaxDeceleration))`.
+- **Dynamic Feedback:** Reacts instantly to changes in ship mass or thruster damage.
+- **Configurable:** Adjust transparency and colors via `config.xml`.
 
 ---
-### 📊 Real-Time Flight Computer (HUD)
-A clean, non-intrusive HUD overlay displaying live ship data.
-- **Dynamic Mass Tracking:** Monitors real-time grid mass changes.
-- **Max Deceleration:** Know exactly how many m/s² your ship can handle.
-- **Altimeter:** Displays distance to actual ground level, not just center-of-planet.
+### 📡 Smart Voxel Surveyor (Asteroids)
+The flagship "Surveyor" feature that identifies materials within asteroids.
+- **Composite Labeling:** Instead of multiple markers, it creates one GPS point and appends all ores found in that sector (e.g. `[Pulsar] Iron, Uranium`).
+- **Spatial Hashing:** Uses 200m cubic sectors to ensure your HUD remains clean.
+- **Voxel Filtering:** Intelligently ignores stone and heavy planet surfaces to maintain performance.
 
 ---
-### 🔭 Laser Rangefinder
-- **Precision Targeting:** Measure distance to any grid or voxel map instantly.
-- **Hotkey Driven:** Default [T] triggers a high-performance raycast up to 50km.
+### 📊 Flight Computer HUD
+A high-performance overlay for critical pilot information:
+- **Mass Tracking:** Real-time grid mass monitor.
+- **Decel Capacity:** Knowing your ship's maximum $m/s^2$ potential.
+- **Laser Range:** Precision distance tracking via the built-in rangefinder.
 
 ---
 ### 🌍 Planetary Telemetry
-The system dynamically detects the nearest celestial body:
-1. **Detection Multiplier:** Scans for planets within a configurable range of their radius.
-2. **Surface Analysis:** Calculates the closest surface point to provide "True Altitude."
-3. **Gravity Monitoring:** Displays natural gravity magnitude in G-force.
+Deep detection of the nearest celestial body:
+1. **True Altitude:** Calculates distance to the actual terrain surface, not sea level.
+2. **Natural Gravity:** Live readout of G-forces acting on the grid.
+
+---
+## ⌨️ Controls & Configuration
+- **Hotkey (Default [T]):** Trigger Laser Rangefinder.
+- **Shift + Hotkey:** Clear all "Surveyor" GPS markers and reset scan memory.
+- **config.xml:** Change hotkeys, survey radius, HUD position, and tunnel aesthetics.
 
 ---
 ## 🗺️ Roadmap
-
-### 1. Ore Mapping (Surveyor)
-Expanding the GpsManagerService to automatically create temporary GPS markers for ores when an Ore Detector is active on the ship.
-
-### 2. SQLite Integration
-Moving configuration and discovery data to SQLite for high-performance logging and session persistence.
-
-### 3. Flight Path Optimization
-Calculating the most fuel-efficient burn times for planetary exit and entry.
+1. **Collision Warning System:** Visual HUD flicker and sound alerts when impact is imminent.
+2. **Ore Priority:** Highlight rare ores (Platinum/Uranium) with different GPS colors.
+3. **Planet Ore Patches:** Optimized scanning for planetary deposits.
 
 ---
 ## 🤝 Contributing
-Maintain compatibility with .NET Framework 4.8.
-Ensure all logic remains decoupled from the Main Plugin entry point.
+Maintain compatibility with .NET Framework 4.8. 
+Pull requests should follow the existing service-oriented architecture.
 
 ---
 ## ☕ Support
@@ -79,3 +81,4 @@ If you like this project and want to support development:
 [Buy Me a Coffee ☕](https://buymeacoffee.com/mamba73)
 
 *Developed by [mamba73](https://github.com/mamba73).*
+"""
