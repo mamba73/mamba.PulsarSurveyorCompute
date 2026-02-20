@@ -20,7 +20,7 @@ namespace Plugin.Services
         /// <summary>
         /// Handles user input for tools like the Laser Rangefinder.
         /// </summary>
-        public void Update(IMyShipController ship)
+        public void Update(IMyShipController ship, ref double lastRange)
         {
             if (ship == null) return;
 
@@ -29,10 +29,9 @@ namespace Plugin.Services
             {
                 if (MyAPIGateway.Input.IsNewKeyPressed(hotkey))
                 {
-                    double dist = _physics.RaycastDistance(ship);
-                    if (dist > 0)
-                        MyAPIGateway.Utilities.ShowNotification($"Range: {dist:N0}m", 2000, MyFontEnum.White);
-                    else
+                    lastRange = _physics.RaycastDistance(ship);
+
+                    if (lastRange <= 0)
                         MyAPIGateway.Utilities.ShowNotification("No target in range", 2000, MyFontEnum.Red);
                 }
             }

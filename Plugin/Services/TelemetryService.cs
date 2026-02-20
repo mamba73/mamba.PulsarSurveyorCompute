@@ -15,6 +15,16 @@ namespace Plugin.Services
             _config = config;
         }
 
+        public double GetAltitude(IMyShipController ship)
+        {
+            var planet = MyGamePruningStructure.GetClosestPlanet(ship.GetPosition());
+            if (planet == null) return -1;
+
+            Vector3D shipPos = ship.GetPosition();
+            Vector3D surfacePoint = planet.GetClosestSurfacePointGlobal(ref shipPos);
+            return Vector3D.Distance(shipPos, surfacePoint);
+        }
+        
         /// <summary>
         /// Updates telemetry data when the ship is within the gravitational influence of a planet.
         /// </summary>
