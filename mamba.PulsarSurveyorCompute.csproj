@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net48</TargetFramework>
+        <LangVersion>latest</LangVersion>
+        <AssemblyName>mamba.PulsarSurveyorCompute</AssemblyName>
+        <RootNamespace>Plugin</RootNamespace>
+        <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+        <OutputPath>bin\$(Configuration)\</OutputPath>
+        <PlatformTarget>x64</PlatformTarget>
+        <Prefer32Bit>false</Prefer32Bit>
+        <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Reference Include="Sandbox.Game">
+            <HintPath>Dependencies\Sandbox.Game.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
+        <Reference Include="Sandbox.Common">
+            <HintPath>Dependencies\Sandbox.Common.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
+        <Reference Include="Sandbox.Graphics">
+            <HintPath>Dependencies\Sandbox.Graphics.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
+        <Reference Include="VRage.Game">
+            <HintPath>Dependencies\VRage.Game.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
+        <Reference Include="VRage.Library">
+            <HintPath>Dependencies\VRage.Library.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
+        <Reference Include="VRage.Math">
+            <HintPath>Dependencies\VRage.Math.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
+        <Reference Include="VRage">
+            <HintPath>Dependencies\VRage.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
+        <Reference Include="VRage.Render">
+            <HintPath>Dependencies\VRage.Render.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
+        <Reference Include="System.Xml" />
+        <Reference Include="System.Xml.Serialization" />
+    </ItemGroup>
+
+</Project>

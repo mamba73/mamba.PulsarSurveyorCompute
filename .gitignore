@@ -1,0 +1,42 @@
+# Build artifacts
+bin/
+obj/
+build_archive/
+build_staging/
+*.zip
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+.config/
+.config
+*.csproj.user
+
+# Dependencies
+Dependencies/
+tmp/
+
+# Logs & Config
+logs/
+*.log
+*.ini
+config_sync.ini
+config_check.ini
+temp_msg.txt
+
+# Documentation
+doc/ 
+doc/* 
+
+# Environment & Cache
+*.env
+*.local
+*.cache
+*.bak
+*.old
+*.orig
+*.tmp
+*.swp
+.DS_Store
+*.pyc
