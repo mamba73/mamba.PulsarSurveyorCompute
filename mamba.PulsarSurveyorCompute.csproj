@@ -30,6 +30,10 @@
             <HintPath>Dependencies\VRage.Game.dll</HintPath>
             <Private>False</Private>
         </Reference>
+        <Reference Include="VRage.Input">
+            <HintPath>Dependencies\VRage.Input.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
         <Reference Include="VRage.Library">
             <HintPath>Dependencies\VRage.Library.dll</HintPath>
             <Private>False</Private>

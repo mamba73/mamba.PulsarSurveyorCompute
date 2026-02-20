@@ -1,3 +1,4 @@
+// Plugin/Services/TelemetryService.cs
 using Sandbox.ModAPI;
 using Sandbox.Game.Entities;
 using VRage.Game.ModAPI;
@@ -7,20 +8,24 @@ namespace Plugin.Services
 {
     public class TelemetryService
     {
+        private readonly ConfigService _config;
+
+        public TelemetryService(ConfigService config)
+        {
+            _config = config;
+        }
+
         public void UpdatePlanetData(IMyShipController ship)
         {
-            // Use MyGamePruningStructure to find planets in Plugin API
             var planet = MyGamePruningStructure.GetClosestPlanet(ship.GetPosition());
             if (planet == null) return;
 
             double distToCenter = Vector3D.Distance(ship.GetPosition(), planet.PositionComp.GetPosition());
             float avgRadius = planet.AverageRadius;
 
-            if (distToCenter < avgRadius * 3)
+            if (distToCenter < avgRadius * _config.Data.PlanetDetectionMultiplier)
             {
-                // Explicitly cast double length to float
-                float gravityG = (float)(ship.GetNaturalGravity().Length() / 9.81);
-                // logic for HUD rendering goes here
+                // Telemetry logic
             }
         }
     }

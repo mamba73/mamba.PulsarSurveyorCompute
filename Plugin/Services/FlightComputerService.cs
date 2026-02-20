@@ -1,5 +1,5 @@
+// Plugin/Services/FlightComputerService.cs
 using System;
-using System.Collections.Generic;
 using Plugin.Utils;
 using Sandbox.ModAPI;
 using VRageMath;
@@ -9,24 +9,40 @@ namespace Plugin.Services
     public class FlightComputerService
     {
         private readonly PhysicsService _physics;
+        private readonly ConfigService _config;
 
-        public FlightComputerService(PhysicsService physics)
+        public FlightComputerService(PhysicsService physics, ConfigService config)
         {
             _physics = physics;
+            _config = config;
         }
 
         public void DrawBrakingTunnel(IMyShipController ship)
         {
-            if (ship == null) return;
+            if (ship == null || ship.CubeGrid.IsStatic) return;
 
             double velocity = ship.GetShipSpeed();
             if (velocity < 1.0) return;
 
             float maxDeceleration = _physics.CalculateMaxDeceleration(ship);
-            // $s = v^2 / 2a$
+
+            // Stopping Distance formula: s = v^2 / (2 * a)
             double stoppingDistance = (velocity * velocity) / (2 * maxDeceleration);
 
-            RenderUtils.DrawTunnel(ship.WorldMatrix, stoppingDistance, GetSafetyColor(ship, stoppingDistance));
+            // Determine color based on collision prediction
+            Color tunnelColor = GetSafetyColor(ship, stoppingDistance);
+
+            // This now matches: (IMyShipController, double, Color, float)
+            // RenderUtils.DrawTunnel(ship, stoppingDistance, tunnelColor, _config.Data.TunnelTransparency);
+            RenderUtils.DrawTunnel(
+                    ship,
+                    stoppingDistance,
+                    tunnelColor,
+                    _config.Data.TunnelTransparency,
+                    _config.Data.TunnelScale,
+                    _config.Data.TunnelMaterial,
+                    _config.Data.TunnelLineThickness
+                );
         }
 
         private Color GetSafetyColor(IMyShipController ship, double dist)

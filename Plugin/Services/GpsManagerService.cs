@@ -1,49 +1,39 @@
+// Plugin/Services/GpsManagerService.cs
 using System.Collections.Generic;
-using System.Linq;
-using Plugin.Models;
 using Sandbox.ModAPI;
 using VRage.Game.ModAPI;
+using VRage.ModAPI;
 using VRageMath;
 
 namespace Plugin.Services
 {
     public class GpsManagerService
     {
-        private List<ResourceMarker> _cache = new List<ResourceMarker>();
+        private readonly ConfigService _config;
 
-        public void ProcessOreDetection(Vector3D pos, string oreName, long asteroidId)
+        public GpsManagerService(ConfigService config)
         {
-            var existing = _cache.FirstOrDefault(m =>
-                m.EntityId == asteroidId &&
-                Vector3D.Distance(m.Position, pos) < 500);
-
-            if (existing != null)
-            {
-                if (!existing.Ores.Contains(oreName))
-                {
-                    existing.Ores += $", {oreName}";
-                    UpdateGpsName(existing);
-                }
-            }
-            else
-            {
-                CreateNewMarker(pos, oreName, asteroidId);
-            }
+            _config = config;
         }
 
-        private void CreateNewMarker(Vector3D pos, string ore, long id)
+        /// <summary>
+        /// Scans for nearby voxels (asteroids/planets) within the configured survey radius.
+        /// </summary>
+        public void ScanForVoxels(IMyShipController ship)
         {
-            string name = $"[Sector] [{id}] [{ore}]";
-            var gps = MyAPIGateway.Session.GPS.Create(name, "Pulsar Surveyor", pos, true);
-            MyAPIGateway.Session.GPS.AddLocalGps(gps);
+            float radius = _config.Data.SurveyRadius;
+            HashSet<IMyEntity> entities = new HashSet<IMyEntity>();
 
-            _cache.Add(new ResourceMarker { EntityId = id, Position = pos, Ores = ore, GpsInstance = gps });
-        }
+            // Collect all voxel entities in the scene
+            MyAPIGateway.Entities.GetEntities(entities, e => e is IMyVoxelBase);
 
-        private void UpdateGpsName(ResourceMarker marker)
-        {
-            marker.GpsInstance.Name = $"[Sector] [{marker.EntityId}] [{marker.Ores}]";
-            MyAPIGateway.Session.GPS.ModifyGps(MyAPIGateway.Session.Player.IdentityId, marker.GpsInstance);
+            foreach (var entity in entities)
+            {
+                var voxel = entity as IMyVoxelBase;
+                if (voxel == null) continue;
+
+                // Future implementation: Check distance and iterate materials
+            }
         }
     }
 }
