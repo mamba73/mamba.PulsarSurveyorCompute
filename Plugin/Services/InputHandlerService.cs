@@ -8,7 +8,6 @@ using VRage.Game.ModAPI;
 using VRage.ModAPI;
 using VRageMath;
 using Plugin.Models;
-using Plugin.Services;
 
 namespace Plugin.Services
 {
@@ -20,8 +19,8 @@ namespace Plugin.Services
 
         public InputHandlerService(Config config, PhysicsService physics, GpsManagerService gpsManager)
         {
-            _config    = config;
-            _physics   = physics;
+            _config     = config;
+            _physics    = physics;
             _gpsManager = gpsManager;
         }
 
@@ -43,23 +42,22 @@ namespace Plugin.Services
 
         /// <summary>
         /// Fires a raycast along the ship's forward vector up to Config.LaserMaxRange.
-        /// Hit-type dispatch:
-        ///   Planet (MyPlanet)    → planet GPS with radius, gravity, gravity-well, fauna
-        ///   Asteroid (voxel)     → ore detected via multi-depth sampling, asteroid GPS
-        ///   Grid (IMyCubeGrid)   → grid contact GPS with relation info
         ///
-        /// FIX: Planet and voxel detection now both check for MyPlanet first,
-        /// since MyPlanet IS a voxel map. Check order matters — planet before voxel.
+        /// RANGE: Controlled by Config.LaserMaxRange (default 50 000m / 50km).
+        ///   Edit via config.xml → LaserMaxRange element.
+        ///
+        /// HIT-TYPE DISPATCH ORDER (order matters — planet check MUST be first):
+        ///   1. Planet  → MyPlanet identified via 3-step check (see ResolvePlanet)
+        ///   2. Voxel   → asteroid ore sampled at multiple depths
+        ///   3. Grid    → ship/station contact GPS
         /// </summary>
         private void PerformLaserScan(IMyShipController ship, out double range)
         {
             range = -1;
 
-            // FIX: Use config-driven LaserMaxRange — not hardcoded 50000
-            double maxRange = _config.LaserMaxRange;
+            double maxRange = _config.LaserMaxRange; // from config — not hardcoded
 
-            // Offset 5m forward to safely clear the ship's own collision bounding box
-            // (increased from 2.5m — large ship noses can extend further)
+            // Offset 5m forward to clear the ship's own collision bounding box
             Vector3D start = ship.WorldMatrix.Translation + ship.WorldMatrix.Forward * 5.0;
             Vector3D end   = start + ship.WorldMatrix.Forward * maxRange;
 
@@ -71,100 +69,133 @@ namespace Plugin.Services
             }
 
             range = Vector3D.Distance(start, hit.Position);
-            IMyEntity hitEnt = hit.HitEntity?.GetTopMostParent();
-            if (hitEnt == null)
-            {
-                MyAPIGateway.Utilities.ShowNotification($"[Pulsar] Hit terrain ({range:N0}m)", 2000, "White");
-                return;
-            }
 
             // ---------------------------------------------------------------
-            // PLANET CHECK — must come BEFORE generic voxel check
-            // MyPlanet implements IMyVoxelBase; checking for planet first
-            // prevents it from being misidentified as an asteroid.
+            // STEP 1: Try to resolve a planet at this hit position.
+            //
+            // WHY 3-STEP CHECK:
+            //   In SE, hitting a planet surface returns a MyVoxelPhysics entity
+            //   (the physics proxy child), not MyPlanet directly.
+            //   GetTopMostParent() usually resolves it, but is not guaranteed
+            //   across all SE versions and planet types.
+            //   The position-based fallback (step 3) is the most reliable.
             // ---------------------------------------------------------------
-            var asPlanet = hitEnt as MyPlanet;
-            if (asPlanet == null && hitEnt is IMyVoxelBase)
-            {
-                // TopMostParent returned IMyVoxelBase — cast to MyPlanet as secondary check
-                asPlanet = hitEnt as MyPlanet;
-            }
+            MyPlanet planet = ResolvePlanet(hit, hit.Position);
 
-            if (asPlanet != null)
+            if (planet != null)
             {
-                HandlePlanetHit(asPlanet, hit.Position);
+                HandlePlanetHit(planet, hit.Position);
                 MyAPIGateway.Utilities.ShowNotification(
-                    $"[Pulsar] Planet: {asPlanet.Generator.Id.SubtypeName} ({range:N0}m)",
+                    $"[Pulsar] Planet: {planet.Generator.Id.SubtypeName} ({range:N0}m)",
                     3000, "LightBlue");
                 return;
             }
 
             // ---------------------------------------------------------------
-            // ASTEROID / VOXEL CHECK
-            // At this point we know it's a voxel but NOT a planet.
+            // STEP 2: Voxel (asteroid) — only reached if NOT a planet
             // ---------------------------------------------------------------
+            IMyEntity hitEnt = hit.HitEntity?.GetTopMostParent();
+
             if (hitEnt is IMyVoxelBase voxel)
             {
-                // FIX: Multi-depth sampling replaces single 0.5m penetration.
-                // Asteroid stone crusts can be several meters thick.
-                string ore = GpsManagerService.SampleOreAtDepths(voxel, hit.Position, ship.WorldMatrix.Forward, _config.VoxelPenetrationDepths);
+                // Multi-depth sampling — penetrates stone shell to reach actual ore
+                string ore = GpsManagerService.SampleOreAtDepths(
+                    voxel, hit.Position, ship.WorldMatrix.Forward, _config.VoxelPenetrationDepths);
 
                 if (ore != null && !ore.Equals("Stone", StringComparison.OrdinalIgnoreCase))
                 {
                     _gpsManager.ProcessVoxelDetection(voxel, ore);
-                    MyAPIGateway.Utilities.ShowNotification($"[Pulsar] Lock: {ore} at {range:N0}m", 2000, "Yellow");
+                    MyAPIGateway.Utilities.ShowNotification(
+                        $"[Pulsar] Ore Lock: {ore} at {range:N0}m", 2000, "Yellow");
                 }
                 else
                 {
-                    MyAPIGateway.Utilities.ShowNotification($"[Pulsar] Lock: Rock/Stone at {range:N0}m", 2000, "White");
+                    MyAPIGateway.Utilities.ShowNotification(
+                        $"[Pulsar] Rock/Stone at {range:N0}m — try closer or different angle", 2000, "White");
                 }
                 return;
             }
 
             // ---------------------------------------------------------------
-            // GRID / SHIP CHECK — confirmed working, kept as-is
+            // STEP 3: Grid / ship — confirmed working, kept as-is
             // ---------------------------------------------------------------
             if (hitEnt is IMyCubeGrid grid)
             {
                 string size = grid.GridSizeEnum == MyCubeSize.Large ? "Large" : "Small";
                 _gpsManager.CreateGridGps(grid.DisplayName, hit.Position, "Detected", size);
-                MyAPIGateway.Utilities.ShowNotification($"[Pulsar] Grid Lock: {grid.DisplayName} ({range:N0}m)", 2000, "White");
+                MyAPIGateway.Utilities.ShowNotification(
+                    $"[Pulsar] Grid Lock: {grid.DisplayName} ({range:N0}m)", 2000, "White");
             }
         }
 
         /// <summary>
-        /// Extracts all relevant data from a MyPlanet instance and creates a
-        /// comprehensive GPS entry. Called when the laser hits a planet surface.
+        /// Tries to identify a MyPlanet from a raycast hit using three escalating checks.
         ///
-        /// GPS label format: #Name (R:Xk) (G:X.XX) (GW:Xk) [(F+)]
-        /// GPS description: radius, gravity well, atmosphere, oxygen, fauna list.
+        /// Check 1 — Direct cast:
+        ///   hit.HitEntity itself might already be MyPlanet (rare but possible).
+        ///
+        /// Check 2 — Parent chain:
+        ///   hit.HitEntity is typically MyVoxelPhysics; GetTopMostParent() walks up
+        ///   the entity tree to find MyPlanet.
+        ///
+        /// Check 3 — Position proximity (most reliable fallback):
+        ///   GetClosestPlanet() finds the nearest planet regardless of entity hierarchy.
+        ///   We confirm the hit is actually ON that planet by checking if the hit point
+        ///   is within the planet's outer radius (AverageRadius * 1.2 for surface variation).
+        ///
+        /// Returns null if none of the three checks resolve a planet.
+        /// </summary>
+        private static MyPlanet ResolvePlanet(IHitInfo hit, Vector3D hitPos)
+        {
+            // Check 1: direct cast
+            var direct = hit.HitEntity as MyPlanet;
+            if (direct != null) return direct;
+
+            // Check 2: walk parent chain
+            var parent = hit.HitEntity?.GetTopMostParent() as MyPlanet;
+            if (parent != null) return parent;
+
+            // Check 3: position-based lookup — most reliable across SE versions
+            var nearest = MyGamePruningStructure.GetClosestPlanet(hitPos);
+            if (nearest == null) return null;
+
+            // Confirm the hit point is within this planet's outer boundary
+            // (AverageRadius * 1.5 covers hills, mountains, and atmosphere surface)
+            double distToCenter = Vector3D.Distance(hitPos, nearest.PositionComp.GetPosition());
+            if (distToCenter <= nearest.AverageRadius * 1.5)
+                return nearest;
+
+            return null;
+        }
+
+        /// <summary>
+        /// Extracts all relevant planetary data and creates a GPS entry.
+        ///
+        /// GPS label format:
+        ///   #Name (R:Xk) (G:X.XX) (GW:Xk) [(F+)]
+        ///   R  = average radius in km
+        ///   G  = surface gravity in Gs
+        ///   GW = gravity well outer edge (~2× radius)
+        ///   (F+) = fauna present
+        ///
+        /// GPS description contains: radius, gravity well, atmosphere, oxygen, fauna list.
         /// </summary>
         private void HandlePlanetHit(MyPlanet planet, Vector3D hitPos)
         {
             string name = planet.Generator.Id.SubtypeName;
 
-            // Geometric center of the planet for the GPS pin
-            // PositionLeftBottomCorner + half of total voxel extent
-            // SizeInMetres is Vector3 (float) — must multiply by float literal, not double
+            // Planet center: PositionLeftBottomCorner + half the voxel extent
+            // SizeInMetres is Vector3 (float) — cast to Vector3D after float multiply
             Vector3D center = planet.PositionLeftBottomCorner + (Vector3D)(planet.SizeInMetres * 0.5f);
 
-            // Radius in km (rounded to nearest km)
-            float radiusKm = planet.AverageRadius / 1000f;
-
-            // Surface gravity in Gs
-            float gravity = planet.Generator.SurfaceGravity;
-
-            // Gravity well — SE convention: gravity influence ends at ~2× average radius
+            float radiusKm      = planet.AverageRadius / 1000f;
+            float gravity       = planet.Generator.SurfaceGravity;
             float gravityWellKm = (planet.AverageRadius * 2f) / 1000f;
 
-            // Atmosphere
-            bool hasAtmosphere = planet.HasAtmosphere;
-            float oxygenLevel  = hasAtmosphere
-                ? planet.Generator.Atmosphere.OxygenDensity
-                : 0f;
+            bool  hasAtmosphere = planet.HasAtmosphere;
+            float oxygenLevel   = hasAtmosphere ? planet.Generator.Atmosphere.OxygenDensity : 0f;
 
             // ---- FAUNA DETECTION ----
-            // Read both day and night spawn tables and merge unique animal types.
             var faunaBuilder = new StringBuilder();
             var day   = planet.Generator.AnimalSpawnInfo;
             var night = planet.Generator.NightAnimalSpawnInfo;
@@ -186,7 +217,6 @@ namespace Plugin.Services
             addFauna(night);
             string faunaResult = faunaBuilder.Length > 0 ? faunaBuilder.ToString() : "None";
 
-            // Delegate GPS creation to GpsManagerService (centralized GPS ownership)
             _gpsManager.CreatePlanetGps(
                 name, center, radiusKm, gravity, gravityWellKm,
                 hasAtmosphere, oxygenLevel, faunaResult);
