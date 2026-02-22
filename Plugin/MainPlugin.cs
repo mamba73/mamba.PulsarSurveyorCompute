@@ -1,79 +1,92 @@
 // Plugin/MainPlugin.cs
-using Plugin.Services;
+using VRage.Plugins;
 using Sandbox.ModAPI;
-using VRage.Game;
-using VRage.Game.Components;
 using VRage.Game.ModAPI;
+using Plugin.Services;
+using Plugin.Models;
 
 namespace Plugin
 {
-    [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation)]
-    public class MainPlugin : MySessionComponentBase
+    public class MainPlugin : IPlugin
     {
-        private ConfigService _config;
-        private PhysicsService _physics;
+        private ConfigService         _configService;
+        private PhysicsService        _physics;
         private FlightComputerService _flightComputer;
-        private TelemetryService _telemetry;
-        private GpsManagerService _gpsManager;
-        private InputHandlerService _inputHandler;
-        private HudDisplayService _hudDisplay;
+        private TelemetryService      _telemetry;
+        private GpsManagerService     _gpsManager;
+        private InputHandlerService   _inputHandler;
+        private HudDisplayService     _hudDisplay;
+        private AudioService          _audio;
+        private TerminalControlService _terminalControls;
 
-        // Shared data for the HUD
+        // Persistent session state
         private double _lastRange = -1;
-        private double _lastAltitude = -1;
+        private bool   _initialized = false;
 
-        public override void Init(MyObjectBuilder_SessionComponent sessionComponent)
+        public void Init(object gameInstance)
         {
-            _config = new ConfigService();
-            _config.Load();
+            _configService = new ConfigService();
+            _configService.Load();
 
-            _physics = new PhysicsService(_config);
-            _flightComputer = new FlightComputerService(_physics, _config);
-            _telemetry = new TelemetryService(_config);
-            _gpsManager = new GpsManagerService(_config);
-            _inputHandler = new InputHandlerService(_config, _physics, _gpsManager);
-            _hudDisplay = new HudDisplayService(_config);
+            // Initialization order matters:
+            //   1. ConfigService first (all others depend on it)
+            //   2. PhysicsService before FlightComputer (FlightComputer calls Physics)
+            //   3. GpsManager before InputHandler (InputHandler reports to GpsManager)
+            _physics          = new PhysicsService(_configService);
+            _gpsManager       = new GpsManagerService(_configService.Data);
+            _flightComputer   = new FlightComputerService(_physics, _configService);
+            _telemetry        = new TelemetryService(_configService);
+            _inputHandler     = new InputHandlerService(_configService.Data, _physics, _gpsManager);
+            _hudDisplay       = new HudDisplayService(_configService);
+            _audio            = new AudioService();
+            _terminalControls = new TerminalControlService(_gpsManager, _configService);
+
+            _initialized = true;
         }
 
-        public override void UpdateBeforeSimulation()
+        public void Update()
         {
-            if (MyAPIGateway.Session?.Player == null) return;
+            if (!_initialized || MyAPIGateway.Session == null) return;
 
-            var ship = MyAPIGateway.Session.Player.Controller?.ControlledEntity as IMyShipController;
+            // Terminal controls are registered lazily on the first tick where the API is ready.
+            // Calling Initialize() every tick is safe — it exits immediately after first success.
+            _terminalControls.Initialize();
+
+            var ship = MyAPIGateway.Session.Player?.Controller?.ControlledEntity as IMyShipController;
             if (ship == null) return;
 
-            // 1. Calculations & Input
-            _lastAltitude = _telemetry.GetAltitude(ship);
+            // --- TELEMETRY ---
+            double altitude = _telemetry.GetAltitude(ship);
+            float  gravityG = _telemetry.GetGravityG(ship);
+            _telemetry.UpdatePlanetData(ship); // triggers low-altitude warning if applicable
+
+            // --- INPUT (Laser / Shift+T reset) ---
             _inputHandler.Update(ship, ref _lastRange);
 
-            // 2. Physics Data
-            var entity = ship.CubeGrid as VRage.Game.Entity.MyEntity;
-            float mass = entity?.Physics?.Mass ?? 0f;
-            float maxDecel = _physics.CalculateMaxDeceleration(ship);
+            // --- FLIGHT COMPUTER ---
+            // Returns true when a collision is detected within the braking path.
+            // FIX (CS0128): isWarning declared exactly ONCE here, used by both Audio and HUD.
+            bool isWarning = _flightComputer.DrawBrakingTunnel(ship);
 
-            // Calculate stopping distance once
-            float stopDist = _physics.CalculateStoppingDistance(ship);
+            // --- AUDIO ---
+            _audio.PlayWarningSound(isWarning);
 
-            // 3. Collision Logic & Visuals
-            // Draw tunnel and check if a collision is detected within braking range
-            _flightComputer.DrawBrakingTunnel(ship);
-            bool isWarning = _flightComputer.CheckCollision(ship, stopDist);
+            // --- HUD ---
+            var entity   = ship.CubeGrid as VRage.Game.Entity.MyEntity;
+            float mass   = entity?.Physics?.Mass ?? 0f;
+            float maxDecel = _physics.CalculateMaxDeceleration(ship); // uses live thrust
 
-            // 4. Render HUD & World Scan
-            _hudDisplay.Draw(mass, maxDecel, _lastAltitude, _lastRange, isWarning);
+            _hudDisplay.Draw(mass, maxDecel, altitude, _lastRange, gravityG, isWarning);
+
+            // --- AUTO ORE SCAN (throttled internally to ~2s) ---
             _gpsManager.ScanForVoxels(ship);
         }
 
-        protected override void UnloadData()
+        public void Dispose()
         {
-            _config?.Save();
-            _config = null;
-            _physics = null;
-            _flightComputer = null;
-            _telemetry = null;
-            _gpsManager = null;
-            _inputHandler = null;
-            _hudDisplay = null;
+            _terminalControls?.Terminate(); // Unregister terminal hook
+            _hudDisplay?.Hide();            // Remove persistent HUD notification
+            _configService?.Save();         // Persist any runtime config changes
         }
     }
 }

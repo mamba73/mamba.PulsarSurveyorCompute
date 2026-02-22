@@ -8,54 +8,74 @@ namespace Plugin.Services
 {
     public class TelemetryService
     {
-        private readonly ConfigService _config;
+        private readonly ConfigService _configService;
 
-        public TelemetryService(ConfigService config)
+        public TelemetryService(ConfigService configService)
         {
-            _config = config;
+            _configService = configService;
         }
 
+        /// <summary>
+        /// Returns true terrain altitude above nearest planet surface.
+        /// Uses GetClosestSurfacePointGlobal — actual terrain geometry, not sea-level.
+        /// Returns -1 in deep space (no planet nearby).
+        /// </summary>
         public double GetAltitude(IMyShipController ship)
         {
             var planet = MyGamePruningStructure.GetClosestPlanet(ship.GetPosition());
             if (planet == null) return -1;
 
-            Vector3D shipPos = ship.GetPosition();
-            Vector3D surfacePoint = planet.GetClosestSurfacePointGlobal(ref shipPos);
-            return Vector3D.Distance(shipPos, surfacePoint);
+            Vector3D pos     = ship.GetPosition();
+            Vector3D surface = planet.GetClosestSurfacePointGlobal(ref pos);
+            return Vector3D.Distance(pos, surface);
         }
-        
+
         /// <summary>
-        /// Updates telemetry data when the ship is within the gravitational influence of a planet.
+        /// Returns current natural gravity strength in Gs (Earth = 1.0G).
+        /// Returns 0.0 in deep space.
         /// </summary>
-        public void UpdatePlanetData(IMyShipController ship)
+        public float GetGravityG(IMyShipController ship)
         {
-            // Find the closest planet using the game pruning structure
+            double len = ship.GetNaturalGravity().Length();
+            return (float)(len / 9.81); // 9.81 m/s² = 1G
+        }
+
+        /// <summary>
+        /// Returns true when the ship is inside a planet's gravity influence zone.
+        /// Zone radius = planet.AverageRadius * Config.PlanetDetectionMultiplier.
+        ///
+        /// Side effects:
+        ///   - Fires a red HUD notification when altitude is below 2000m and speed > 100 m/s.
+        ///
+        /// This method is called every tick from MainPlugin and keeps all planet-related
+        /// warnings centralized here rather than scattered across services.
+        /// </summary>
+        public bool UpdatePlanetData(IMyShipController ship)
+        {
             var planet = MyGamePruningStructure.GetClosestPlanet(ship.GetPosition());
-            if (planet == null) return;
+            if (planet == null) return false;
 
-            // Calculate distance to the center and compare with detection multiplier from config
             double distToCenter = Vector3D.Distance(ship.GetPosition(), planet.PositionComp.GetPosition());
-            float avgRadius = planet.AverageRadius;
 
-            if (distToCenter < avgRadius * _config.Data.PlanetDetectionMultiplier)
+            // PlanetDetectionMultiplier defines how far out the "gravity zone" extends
+            if (distToCenter >= planet.AverageRadius * _configService.Data.PlanetDetectionMultiplier)
+                return false;
+
+            // Inside gravity zone — compute true altitude
+            Vector3D pos     = ship.GetPosition();
+            Vector3D surface = planet.GetClosestSurfacePointGlobal(ref pos);
+            double altitude  = Vector3D.Distance(pos, surface);
+
+            // Low-altitude + high-speed warning (visible even when tunnel is not)
+            if (altitude < 2000 && ship.GetShipSpeed() > 100)
             {
-                // Get the closest point on the surface to determine true altitude
-                Vector3D shipPos = ship.GetPosition();
-                Vector3D surfacePoint = planet.GetClosestSurfacePointGlobal(ref shipPos);
-                double altitude = Vector3D.Distance(shipPos, surfacePoint);
-
-                // Calculate natural gravity in Gs
-                float gravityG = (float)(ship.GetNaturalGravity().Length() / 9.81);
-
-                // If altitude is low, trigger a warning notification (placeholder for HUD logic)
-                if (altitude < 2000 && ship.GetShipSpeed() > 100)
-                {
-                    MyAPIGateway.Utilities.ShowNotification($"WARNING: Low Altitude! {altitude:N0}m", 16, VRage.Game.MyFontEnum.Red);
-                }
-
-                // Note: These values will be passed to the HudDisplayService in the next step
+                MyAPIGateway.Utilities.ShowNotification(
+                    $"WARNING: Low Altitude {altitude:N0}m | Speed {ship.GetShipSpeed():N0} m/s",
+                    16,
+                    VRage.Game.MyFontEnum.Red);
             }
+
+            return true;
         }
     }
 }

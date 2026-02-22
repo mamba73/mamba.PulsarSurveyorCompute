@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PluginData xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="GitHubPlugin">
+    <Id>mamba.PulsarSurveyorCompute</Id>
+    <FriendlyName>mamba Surveyor Compute</FriendlyName>
+    <Author>mamba</Author>
+    <Tooltip>Advanced trajectory analysis and planetary surveying.</Tooltip>
+    <Description>Standalone plugin for ship physics and predictive 3D rendering.</Description>
+</PluginData>
