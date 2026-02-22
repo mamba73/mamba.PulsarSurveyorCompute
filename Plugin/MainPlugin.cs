@@ -9,17 +9,16 @@ namespace Plugin
 {
     public class MainPlugin : IPlugin
     {
-        private ConfigService         _configService;
-        private PhysicsService        _physics;
-        private FlightComputerService _flightComputer;
-        private TelemetryService      _telemetry;
-        private GpsManagerService     _gpsManager;
-        private InputHandlerService   _inputHandler;
-        private HudDisplayService     _hudDisplay;
-        private AudioService          _audio;
+        private ConfigService          _configService;
+        private PhysicsService         _physics;
+        private FlightComputerService  _flightComputer;
+        private TelemetryService       _telemetry;
+        private GpsManagerService      _gpsManager;
+        private InputHandlerService    _inputHandler;
+        private HudDisplayService      _hudDisplay;
+        private AudioService           _audio;
         private TerminalControlService _terminalControls;
 
-        // Persistent session state
         private double _lastRange = -1;
         private bool   _initialized = false;
 
@@ -28,10 +27,6 @@ namespace Plugin
             _configService = new ConfigService();
             _configService.Load();
 
-            // Initialization order matters:
-            //   1. ConfigService first (all others depend on it)
-            //   2. PhysicsService before FlightComputer (FlightComputer calls Physics)
-            //   3. GpsManager before InputHandler (InputHandler reports to GpsManager)
             _physics          = new PhysicsService(_configService);
             _gpsManager       = new GpsManagerService(_configService.Data);
             _flightComputer   = new FlightComputerService(_physics, _configService);
@@ -48,45 +43,48 @@ namespace Plugin
         {
             if (!_initialized || MyAPIGateway.Session == null) return;
 
-            // Terminal controls are registered lazily on the first tick where the API is ready.
-            // Calling Initialize() every tick is safe — it exits immediately after first success.
             _terminalControls.Initialize();
 
             var ship = MyAPIGateway.Session.Player?.Controller?.ControlledEntity as IMyShipController;
             if (ship == null) return;
 
+            // --- PHYSICS ---
+            float maxDecel = _physics.CalculateMaxDeceleration(ship);
+
             // --- TELEMETRY ---
+            // UpdatePlanetData takes liveMaxDecel to compute gravity sustainability
             double altitude = _telemetry.GetAltitude(ship);
             float  gravityG = _telemetry.GetGravityG(ship);
-            _telemetry.UpdatePlanetData(ship); // triggers low-altitude warning if applicable
+            _telemetry.UpdatePlanetData(ship, maxDecel);
 
-            // --- INPUT (Laser / Shift+T reset) ---
+            // --- INPUT ---
             _inputHandler.Update(ship, ref _lastRange);
 
             // --- FLIGHT COMPUTER ---
-            // Returns true when a collision is detected within the braking path.
-            // FIX (CS0128): isWarning declared exactly ONCE here, used by both Audio and HUD.
+            // isWarning declared ONCE here (CS0128 guard)
             bool isWarning = _flightComputer.DrawBrakingTunnel(ship);
 
             // --- AUDIO ---
             _audio.PlayWarningSound(isWarning);
 
             // --- HUD ---
-            var entity   = ship.CubeGrid as VRage.Game.Entity.MyEntity;
-            float mass   = entity?.Physics?.Mass ?? 0f;
-            float maxDecel = _physics.CalculateMaxDeceleration(ship); // uses live thrust
+            var entity = ship.CubeGrid as VRage.Game.Entity.MyEntity;
+            float mass = entity?.Physics?.Mass ?? 0f;
 
-            _hudDisplay.Draw(mass, maxDecel, altitude, _lastRange, gravityG, isWarning);
+            _hudDisplay.Draw(
+                mass, maxDecel, altitude, _lastRange,
+                gravityG, isWarning,
+                _telemetry.CurrentApproach); // pass planet approach data to HUD
 
-            // --- AUTO ORE SCAN (throttled internally to ~2s) ---
+            // --- AUTO SCAN (throttled ~2s) ---
             _gpsManager.ScanForVoxels(ship);
         }
 
         public void Dispose()
         {
-            _terminalControls?.Terminate(); // Unregister terminal hook
-            _hudDisplay?.Hide();            // Remove persistent HUD notification
-            _configService?.Save();         // Persist any runtime config changes
+            _terminalControls?.Terminate();
+            _hudDisplay?.Hide();
+            _configService?.Save();
         }
     }
 }

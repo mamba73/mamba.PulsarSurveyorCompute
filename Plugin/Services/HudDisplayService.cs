@@ -3,7 +3,7 @@ using System.Text;
 using Plugin.Models;
 using Sandbox.ModAPI;
 using VRage.Game;
-using VRage.Game.ModAPI;  // IMyHudNotification lives here
+using VRage.Game.ModAPI;  // IMyHudNotification
 using VRageMath;
 
 namespace Plugin.Services
@@ -13,10 +13,7 @@ namespace Plugin.Services
         private readonly ConfigService _configService;
         private readonly StringBuilder _sb = new StringBuilder();
 
-        // FIX (flicker): Persistent notification object — created once, updated every frame.
-        // Using IMyHudNotification.Show() + ResetAliveTime() keeps it alive indefinitely.
-        // This avoids ShowNotification() stacking/ghosting that caused HUD flicker.
-        // Namespace: VRage.Game.ModAPI (confirmed in VRage.Game.dll DLL report).
+        // Persistent notification — created once, updated every frame (no flicker/stacking)
         private IMyHudNotification _hudNote;
 
         public HudDisplayService(ConfigService configService)
@@ -25,23 +22,20 @@ namespace Plugin.Services
         }
 
         /// <summary>
-        /// Draws the Pulsar HUD overlay. Called every game tick from MainPlugin.Update().
+        /// Draws the Pulsar HUD. Called every tick.
         ///
-        /// FLICKER FIX: Uses a single persistent IMyHudNotification.
-        ///   Created once via MyAPIGateway.Utilities.CreateNotification().
-        ///   Text updated in-place each frame via .Text property.
-        ///   ResetAliveTime() called each frame to keep it visible indefinitely.
-        ///
-        /// HUD SYNC: Respects vanilla HUD toggle (H key):
-        ///   State 0 = off     → Pulsar hides too
-        ///   State 1 = minimal → telemetry only
-        ///   State 2 = full    → telemetry + contextual help when stationary
+        /// Sections shown:
+        ///   [Always]   IMPACT IMMINENT banner (when isWarning = true)
+        ///   [Always]   Flight Computer: mass, decel, altitude, gravity, laser range
+        ///   [In well]  Planet approach block: planet name, altitude, gravity well distance,
+        ///              gravity sustainability, escape warning
+        ///   [Stationary + Full HUD] Pilot controls cheat-sheet
         /// </summary>
-        public void Draw(float mass, float maxDecel, double altitude, double range, float gravityG, bool isWarning)
+        public void Draw(
+            float mass, float maxDecel, double altitude, double range,
+            float gravityG, bool isWarning, PlanetApproachInfo approach)
         {
             int hudState = MyAPIGateway.Session.Config.HudState;
-
-            // Player turned HUD off (H key) — hide Pulsar overlay and stop updating
             if (hudState == 0)
             {
                 _hudNote?.Hide();
@@ -50,7 +44,7 @@ namespace Plugin.Services
 
             _sb.Clear();
 
-            // --- IMPACT WARNING BANNER ---
+            // --- IMPACT WARNING ---
             if (isWarning)
             {
                 _sb.AppendLine(">>> IMPACT IMMINENT <<<");
@@ -58,12 +52,10 @@ namespace Plugin.Services
                 _sb.AppendLine("-----------------------");
             }
 
+            // --- FLIGHT COMPUTER ---
             _sb.AppendLine("=== PULSAR FLIGHT COMPUTER ===");
-
-            // --- PRIMARY TELEMETRY ---
-            // Shown in both minimal (1) and full (2) HUD states.
             _sb.AppendLine($"Mass:  {mass:N0} kg");
-            _sb.AppendLine($"Decel: {maxDecel:F2} m/s\u00B2");   // ² via unicode — avoids encoding issues
+            _sb.AppendLine($"Decel: {maxDecel:F2} m/s\u00B2");
 
             if (altitude >= 0)
                 _sb.AppendLine($"Alt:   {altitude:N0} m");
@@ -74,8 +66,49 @@ namespace Plugin.Services
             if (range > 0)
                 _sb.AppendLine($"Lsr:   {range:N0} m");
 
-            // --- CONTEXTUAL PILOT HELP ---
-            // Only in full HUD mode when ship is nearly stationary or in danger.
+            // --- PLANET APPROACH BLOCK ---
+            // Shown whenever a planet's telemetry data is available (inside detection zone).
+            if (approach != null)
+            {
+                _sb.AppendLine("-----------------------");
+                _sb.AppendLine($"PLANET: {approach.PlanetName}");
+
+                if (approach.InsideGravityWell)
+                {
+                    // Already inside — show altitude and how deep inside the well
+                    double depthKm = -approach.DistToWellEdgeM / 1000.0;
+                    _sb.AppendLine($"GW:    INSIDE ({depthKm:F1}km deep)");
+
+                    // Gravity sustainability: can the ship counter gravity with its thrust?
+                    if (!approach.CanEscapeGravity)
+                    {
+                        // CRITICAL: ship cannot fight gravity — will fall
+                        float deficit = approach.GravityAccel - approach.LiveMaxDecel;
+                        _sb.AppendLine($"!!! CANNOT SUSTAIN — deficit {deficit:F1} m/s\u00B2 !!!");
+                        _sb.AppendLine("!!! EXIT GRAVITY WELL NOW !!!");
+                    }
+                    else
+                    {
+                        float margin = approach.LiveMaxDecel - approach.GravityAccel;
+                        _sb.AppendLine($"Thrust OK — margin +{margin:F1} m/s\u00B2");
+                    }
+                }
+                else
+                {
+                    // Approaching — show distance to well boundary
+                    double distKm = approach.DistToWellEdgeM / 1000.0;
+                    _sb.AppendLine($"GW:    {distKm:F1} km to entry");
+
+                    // Warn early if approaching fast and the ship might struggle inside
+                    if (!approach.CanEscapeGravity && approach.DistToWellEdgeM < _configService.Data.GravityWellWarnDistance)
+                    {
+                        _sb.AppendLine($"WARN: Insufficient thrust for {approach.PlanetName}!");
+                        _sb.AppendLine($"Need {approach.GravityAccel:F1} m/s\u00B2, have {approach.LiveMaxDecel:F1}");
+                    }
+                }
+            }
+
+            // --- PILOT HELP (full HUD + stationary or warning) ---
             if (hudState > 1)
             {
                 double speed = MyAPIGateway.Session.Player?.Controller?.ControlledEntity
@@ -84,33 +117,26 @@ namespace Plugin.Services
                 if (speed < _configService.Data.MinSpeedForTunnel || isWarning)
                 {
                     _sb.AppendLine("-----------------------");
-                    _sb.AppendLine("CONTROLS:");
-                    _sb.AppendLine("[T]        Laser ping");
-                    _sb.AppendLine("[Shift+T]  Clear all GPS");
-                    _sb.AppendLine("[Terminal] Scan Sector");
+                    _sb.AppendLine("[T]         Laser ping");
+                    _sb.AppendLine("[Shift+T]   Clear GPS");
+                    _sb.AppendLine("[Terminal]  Scan / Planets");
                     _sb.AppendLine("=======================");
                 }
             }
 
-            // --- FONT SELECTION ---
-            string font = isWarning ? MyFontEnum.Red.ToString() : MyFontEnum.White.ToString();
+            string font = isWarning || (approach != null && !approach.CanEscapeGravity && approach.InsideGravityWell)
+                ? MyFontEnum.Red.ToString()
+                : MyFontEnum.White.ToString();
 
-            // --- PERSISTENT NOTIFICATION (flicker fix) ---
-            // CreateNotification(text, aliveTime, font):
-            //   aliveTime = 0 means "use default" — but we keep it alive via ResetAliveTime() each tick.
-            //   This is safer than int.MaxValue which can overflow internal timers on some SE versions.
             if (_hudNote == null)
                 _hudNote = MyAPIGateway.Utilities.CreateNotification("", 0, font);
 
             _hudNote.Text = _sb.ToString();
             _hudNote.Font = font;
-            _hudNote.ResetAliveTime(); // Restart the timer so it stays visible this frame
+            _hudNote.ResetAliveTime();
             _hudNote.Show();
         }
 
-        /// <summary>
-        /// Hides the overlay. Called from MainPlugin.Dispose() to clean up on session end.
-        /// </summary>
         public void Hide()
         {
             _hudNote?.Hide();
