@@ -18,13 +18,14 @@ namespace Plugin
         private HudDisplayService      _hudDisplay;
         private AudioService           _audio;
         private TerminalControlService _terminalControls;
+        private GravityWellRenderer    _gravityWell;
 
-        private double _lastRange = -1;
+        private double _lastRange   = -1;
         private bool   _initialized = false;
 
         public void Init(object gameInstance)
         {
-            _configService = new ConfigService();
+            _configService    = new ConfigService();
             _configService.Load();
 
             _physics          = new PhysicsService(_configService);
@@ -35,6 +36,7 @@ namespace Plugin
             _hudDisplay       = new HudDisplayService(_configService);
             _audio            = new AudioService();
             _terminalControls = new TerminalControlService(_gpsManager, _configService);
+            _gravityWell      = new GravityWellRenderer(_configService);
 
             _initialized = true;
         }
@@ -46,38 +48,40 @@ namespace Plugin
             _terminalControls.Initialize();
 
             var ship = MyAPIGateway.Session.Player?.Controller?.ControlledEntity as IMyShipController;
-            if (ship == null) return;
+
+            // No cockpit → hide HUD, still render gravity wells for external view
+            if (ship == null)
+            {
+                _hudDisplay.Draw(null, 0, 0, -1, -1, 0, false, null);
+                _gravityWell.Draw(null, _telemetry.NearbyPlanets);
+                return;
+            }
 
             // --- PHYSICS ---
+            float mass     = _physics.GetTotalMass(ship);
             float maxDecel = _physics.CalculateMaxDeceleration(ship);
 
-            // --- TELEMETRY ---
-            // UpdatePlanetData takes liveMaxDecel to compute gravity sustainability
+            // --- TELEMETRY (throttled planet refresh) ---
+            _telemetry.UpdatePlanetData(ship, maxDecel);
             double altitude = _telemetry.GetAltitude(ship);
             float  gravityG = _telemetry.GetGravityG(ship);
-            _telemetry.UpdatePlanetData(ship, maxDecel);
 
             // --- INPUT ---
             _inputHandler.Update(ship, ref _lastRange);
 
-            // --- FLIGHT COMPUTER ---
-            // isWarning declared ONCE here (CS0128 guard)
+            // --- FLIGHT COMPUTER (tunnel + collision) ---
             bool isWarning = _flightComputer.DrawBrakingTunnel(ship);
+
+            // --- GRAVITY WELL VISUALIZATION ---
+            _gravityWell.Draw(ship, _telemetry.NearbyPlanets);
 
             // --- AUDIO ---
             _audio.PlayWarningSound(isWarning);
 
             // --- HUD ---
-            var entity = ship.CubeGrid as VRage.Game.Entity.MyEntity;
-            float mass = entity?.Physics?.Mass ?? 0f;
-
             _hudDisplay.Draw(
-                mass, maxDecel, altitude, _lastRange,
-                gravityG, isWarning,
-                _telemetry.CurrentApproach); // pass planet approach data to HUD
-
-            // --- AUTO SCAN (throttled ~2s) ---
-            _gpsManager.ScanForVoxels(ship);
+                ship, mass, maxDecel, altitude, _lastRange,
+                gravityG, isWarning, _telemetry.CurrentApproach);
         }
 
         public void Dispose()

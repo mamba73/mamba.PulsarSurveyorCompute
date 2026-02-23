@@ -122,7 +122,7 @@ namespace Plugin.Services
             if (hitEnt is IMyCubeGrid grid)
             {
                 string size = grid.GridSizeEnum == MyCubeSize.Large ? "Large" : "Small";
-                _gpsManager.CreateGridGps(grid.DisplayName, hit.Position, "Detected", size);
+                _gpsManager.CreateGridGps(grid.DisplayName, hit.Position, "Detected", size, grid.EntityId);
                 MyAPIGateway.Utilities.ShowNotification(
                     $"[Pulsar] Grid Lock: {grid.DisplayName} ({range:N0}m)", 2000, "White");
             }

@@ -17,31 +17,22 @@ namespace Plugin.Services
     {
         private readonly Config _config;
 
-        // -----------------------------------------------------------------------
-        // ASTEROID CACHE
-        // Key: voxel.EntityId — guarantees one GPS entry per physical asteroid body.
-        // The GPS pin is placed at the asteroid's geometric center (WorldAABB.Center),
-        // NOT at the player position at scan time.
-        // -----------------------------------------------------------------------
         private readonly Dictionary<long, ResourceMarker> _asteroidCache
             = new Dictionary<long, ResourceMarker>();
 
-        private int _scanDelay    = 0;
         private int _asteroidCounter = 0;
 
-        /// <summary>Sector label prefix. Editable via Terminal textbox. E.g. "S01"</summary>
         public string CurrentSectorName = "S01";
 
         /// <summary>
-        /// Pulsar's independent scan range (meters).
-        /// Separate from the vanilla Ore Detector block range cap (~150m).
-        /// Initialized from Config.PulsarScanRange. Updated by the terminal slider.
+        /// Pulsar's independent scan radius — NOT the vanilla Ore Detector block range.
+        /// Updated live by the terminal slider.
         /// </summary>
         public float PulsarScanRange;
 
         public GpsManagerService(Config config)
         {
-            _config        = config;
+            _config         = config;
             PulsarScanRange = config.PulsarScanRange;
         }
 
@@ -50,37 +41,21 @@ namespace Plugin.Services
         // -----------------------------------------------------------------------
 
         /// <summary>
-        /// Auto-scan throttled to ~2 seconds. Called every tick from MainPlugin.
-        /// Uses entity-based voxel discovery — not raycasting — so no asteroid is
-        /// skipped due to step size or ray direction.
-        /// </summary>
-        public void ScanForVoxels(IMyShipController ship)
-        {
-            if (_scanDelay++ < 120) return; // ~2s at 60 TPS
-            _scanDelay = 0;
-            ExecuteEntityScan(ship.WorldMatrix.Translation);
-        }
-
-        /// <summary>
-        /// Immediate full scan from the given detector block's position.
-        /// Called by the Terminal button and G-menu action.
+        /// Manual sector scan. Scans all asteroid voxel maps within PulsarScanRange.
+        /// Grids excluded — detected only via laser (T key).
         /// </summary>
         public void ForceSectorScan(IMyTerminalBlock detectorBlock)
         {
             int before = _asteroidCache.Count;
-            ExecuteEntityScan(detectorBlock.WorldMatrix.Translation);
+            ExecuteAsteroidScan(detectorBlock.WorldMatrix.Translation);
             int found = _asteroidCache.Count - before;
 
             MyAPIGateway.Utilities.ShowNotification(
-                $"[Pulsar] Scan complete — {found} new deposits ({_asteroidCache.Count} total, range {PulsarScanRange:N0}m).",
+                $"[Pulsar] Scan complete — {found} new deposits ({_asteroidCache.Count} total, {PulsarScanRange:N0}m range).",
                 4000, MyFontEnum.Green);
         }
 
-        /// <summary>
-        /// Scans the entire game entity list for planets and creates GPS for each.
-        /// Unlike asteroids, planets are global fixed objects — we just iterate all entities.
-        /// Called by the Terminal "Scan All Planets" button.
-        /// </summary>
+        /// <summary>Iterates ALL game entities to find and GPS-mark every planet.</summary>
         public void ScanAllPlanets()
         {
             int found = 0;
@@ -92,17 +67,16 @@ namespace Plugin.Services
                 var planet = ent as MyPlanet;
                 if (planet == null) continue;
 
-                string name = planet.Generator.Id.SubtypeName;
-                Vector3D center = planet.PositionLeftBottomCorner + (Vector3D)(planet.SizeInMetres * 0.5f);
-                float radiusKm      = planet.AverageRadius / 1000f;
-                float gravity       = planet.Generator.SurfaceGravity;
-                float gravityWellKm = (planet.AverageRadius * 2f) / 1000f;
-                bool  hasAtmosphere = planet.HasAtmosphere;
-                float oxygenLevel   = hasAtmosphere ? planet.Generator.Atmosphere.OxygenDensity : 0f;
-                string fauna        = BuildFaunaString(planet);
+                string   name          = planet.Generator.Id.SubtypeName;
+                Vector3D center        = planet.PositionLeftBottomCorner + (Vector3D)(planet.SizeInMetres * 0.5f);
+                float    radiusKm      = planet.AverageRadius / 1000f;
+                float    gravity       = planet.Generator.SurfaceGravity;
+                float    gravityWellKm = (planet.AverageRadius * 2f) / 1000f;
+                bool     hasAtm        = planet.HasAtmosphere;
+                float    oxygen        = hasAtm ? planet.Generator.Atmosphere.OxygenDensity : 0f;
+                string   fauna         = BuildFaunaString(planet);
 
-                CreatePlanetGps(name, center, radiusKm, gravity, gravityWellKm,
-                                hasAtmosphere, oxygenLevel, fauna);
+                CreatePlanetGps(name, center, radiusKm, gravity, gravityWellKm, hasAtm, oxygen, fauna);
                 found++;
             }
 
@@ -110,9 +84,7 @@ namespace Plugin.Services
                 $"[Pulsar] Planet scan complete — {found} planet(s) mapped.", 4000, MyFontEnum.Green);
         }
 
-        /// <summary>
-        /// Removes all Pulsar GPS markers and resets the scan session. Triggered by Shift+T.
-        /// </summary>
+        /// <summary>Clears all Pulsar GPS markers and resets scan session (Shift+T).</summary>
         public void ClearAllMarkers()
         {
             foreach (var marker in _asteroidCache.Values)
@@ -131,10 +103,8 @@ namespace Plugin.Services
         // -----------------------------------------------------------------------
 
         /// <summary>
-        /// Records an ore detection on a known voxel body.
-        /// - First detection: creates GPS at the asteroid's geometric center (WorldAABB.Center).
-        /// - Subsequent detections: appends ore name to existing marker.
-        /// - Duplicate: silently ignored.
+        /// Records an ore detection. One GPS per entity, at the asteroid's geometric center.
+        /// Additional ores on same entity → appended to existing GPS label.
         /// </summary>
         public void ProcessVoxelDetection(IMyVoxelBase voxel, string oreName)
         {
@@ -143,15 +113,12 @@ namespace Plugin.Services
             if (!_asteroidCache.ContainsKey(entityId))
             {
                 _asteroidCounter++;
-                string asteroidId = $"{CurrentSectorName} A{_asteroidCounter:D2}";
-                Vector3D center   = voxel.WorldAABB.Center; // asteroid center, not player position
-
                 var marker = new ResourceMarker
                 {
                     EntityId = entityId,
-                    Position = center,
+                    Position = voxel.WorldAABB.Center,
                     OreName  = oreName,
-                    Title    = asteroidId
+                    Title    = $"{CurrentSectorName} A{_asteroidCounter:D2}"
                 };
                 _asteroidCache[entityId] = marker;
                 SyncGps(marker);
@@ -167,24 +134,17 @@ namespace Plugin.Services
         // GPS CREATION
         // -----------------------------------------------------------------------
 
-        /// <summary>
-        /// Creates/updates a planet GPS entry.
-        /// Label: #Name (R:Xk) (G:X.XX) (GW:Xk) [(F+)]
-        /// </summary>
         public void CreatePlanetGps(
             string name, Vector3D pos, float radiusKm, float gravity,
             float gravityWellKm, bool hasAtmosphere, float oxygenLevel, string faunaInfo)
         {
-            bool   hasFauna  = !string.IsNullOrEmpty(faunaInfo) && faunaInfo != "None";
-            string faunaTag  = hasFauna ? " (F+)" : "";
-            string label     = $"#{name} (R:{radiusKm:F0}k) (G:{gravity:F2}) (GW:{gravityWellKm:F0}k){faunaTag}";
-            string atmoLine  = hasAtmosphere ? $"Yes (O2:{oxygenLevel:F2})" : "None";
-            string desc      = $"Radius: {radiusKm:F0} km | GW: {gravityWellKm:F0} km\n"
-                             + $"Surface Gravity: {gravity:F2} G\n"
-                             + $"Atmosphere: {atmoLine}\n"
-                             + $"Fauna: {(hasFauna ? faunaInfo : "None detected")}";
+            bool   hasFauna = !string.IsNullOrEmpty(faunaInfo) && faunaInfo != "None";
+            string label    = $"#{name} (R:{radiusKm:F0}k) (G:{gravity:F2}) (GW:{gravityWellKm:F0}k){(hasFauna ? " (F+)" : "")}";
+            string desc     = $"Radius: {radiusKm:F0} km | GW: {gravityWellKm:F0} km\n"
+                            + $"Surface Gravity: {gravity:F2} G\n"
+                            + $"Atmosphere: {(hasAtmosphere ? $"Yes (O2:{oxygenLevel:F2})" : "None")}\n"
+                            + $"Fauna: {(hasFauna ? faunaInfo : "None detected")}";
 
-            // Remove stale duplicate before recreating
             var existing = new List<IMyGps>();
             MyAPIGateway.Session.GPS.GetGpsList(MyAPIGateway.Session.Player.IdentityId, existing);
             foreach (var g in existing)
@@ -196,14 +156,20 @@ namespace Plugin.Services
         }
 
         /// <summary>
-        /// Creates a GPS marker for a detected grid, with duplicate guard (100m).
+        /// Creates GPS for a grid detected by laser. Skips own ship by entityId.
         /// </summary>
-        public void CreateGridGps(string name, Vector3D pos, string relation, string size)
+        public void CreateGridGps(string name, Vector3D pos, string relation, string size, long gridEntityId)
         {
-            string label = $"[Grid] {name} ({size})";
+            var player     = MyAPIGateway.Session.Player;
+            var controlled = player?.Controller?.ControlledEntity?.Entity?.GetTopMostParent() as IMyCubeGrid;
+            if (controlled != null && controlled.EntityId == gridEntityId) return;
 
+            var controlledSc = player?.Controller?.ControlledEntity as IMyShipController;
+            if (controlledSc != null && controlledSc.CubeGrid.EntityId == gridEntityId) return;
+
+            string label = $"[Grid] {name} ({size})";
             var existing = new List<IMyGps>();
-            MyAPIGateway.Session.GPS.GetGpsList(MyAPIGateway.Session.Player.IdentityId, existing);
+            MyAPIGateway.Session.GPS.GetGpsList(player?.IdentityId ?? 0, existing);
             foreach (var g in existing)
                 if (g.Name == label && Vector3D.Distance(g.Coords, pos) < 100) return;
 
@@ -213,91 +179,86 @@ namespace Plugin.Services
         }
 
         // -----------------------------------------------------------------------
-        // INTERNAL SCAN ENGINE
+        // SCAN ENGINE
         // -----------------------------------------------------------------------
 
         /// <summary>
-        /// Entity-based asteroid scan. Uses GetEntitiesInSphere to find all voxel maps
-        /// in PulsarScanRange, then scans each asteroid's voxel storage directly.
-        ///
-        /// WHY entity-based and not raycasting:
-        ///   Raycasting with large steps (50m) misses small asteroids entirely.
-        ///   Entity discovery finds EVERY asteroid in range regardless of its size or
-        ///   the scan direction. Once an asteroid entity is found, its storage is
-        ///   sampled in a 3D grid to find ore veins.
-        ///
-        /// Filter: IMyVoxelMap (asteroids only) — MyPlanet does NOT implement IMyVoxelMap.
-        /// This is the key type distinction: planets are excluded at the interface level.
+        /// Entity-based asteroid discovery within PulsarScanRange.
+        /// IMyVoxelMap = asteroids only (MyPlanet does NOT implement IMyVoxelMap).
         /// </summary>
-        private void ExecuteEntityScan(Vector3D origin)
+        private void ExecuteAsteroidScan(Vector3D origin)
         {
             var sphere   = new BoundingSphereD(origin, PulsarScanRange);
             var entities = MyAPIGateway.Entities.GetEntitiesInSphere(ref sphere);
 
+            int scanned = 0;
             foreach (var ent in entities)
             {
-                // IMyVoxelMap is ONLY asteroids — MyPlanet does NOT implement this interface.
-                // This is cleaner than casting to MyPlanet and inverting.
                 var voxelMap = ent as IMyVoxelMap;
                 if (voxelMap == null) continue;
-
-                // Skip already-fully-scanned asteroids (all known ores recorded)
-                // Allow re-scan to pick up ores missed in previous scan
                 ScanVoxelStorage(voxelMap);
+                scanned++;
             }
-
-            // Also scan for grids in range
-            ExecuteGridScan(origin);
         }
 
         /// <summary>
-        /// Scans a single asteroid's voxel storage to find ore veins.
+        /// Scans a single asteroid's voxel storage for ore using LOD-based reading.
         ///
-        /// Algorithm:
-        ///   1. Read the storage in a 3D grid with stride = Config.VoxelScanStride (default 8m).
-        ///   2. At each grid point, first read Content to skip empty space (fast).
-        ///   3. For solid voxels, read Material and check if it's non-Stone.
-        ///   4. Report each unique ore to ProcessVoxelDetection.
+        /// WHY PREVIOUS VERSION ONLY FOUND ICE:
+        ///   Stride=8 on LOD0 means each sample point is 8m apart.
+        ///   SE ore veins (Iron, Nickel, Silicon) can be as narrow as 3-5 voxels (3-5m).
+        ///   An 8m stride jumps OVER these narrow veins entirely.
+        ///   Ice asteroids are entirely composed of Ice → every sample hits Ice → always detected.
+        ///   Iron/Nickel/etc asteroids have stone shell + narrow veins → missed by 8m stride.
         ///
-        /// WHY this approach works when raycasting failed:
-        ///   - No dependency on ray direction or step size
-        ///   - Covers the ENTIRE asteroid volume systematically
-        ///   - Content pre-check skips empty cells cheaply
-        ///   - Stride 8m reliably finds ore veins (SE ore veins are typically 10-100m wide)
+        /// FIX: Read storage at LOD2 (Level of Detail 2).
+        ///   At LOD2, each "cell" in the storage represents 4×4×4 LOD0 voxels = 4m³ chunk.
+        ///   The storage automatically downsamples and aggregates content/material.
+        ///   A 4m ore vein will occupy roughly 1 cell at LOD2 → reliably detected.
+        ///   Iteration count = (storageSize/4)³ instead of storageSize³ → 64× fewer reads.
         ///
-        /// Performance: Worst-case 512×512×512 asteroid at stride 8 = 64³ ≈ 262k cells.
-        ///   With content pre-check, only ~5-10% are solid (ore-bearing), so ~13-26k
-        ///   Material reads. Acceptable for a 2-second throttled scan.
+        /// LOD2 STRIDE:
+        ///   storageSize at LOD2 = LOD0_size >> 2 (right-shift by LOD level).
+        ///   We iterate in units of 1 cell at LOD2 (which = 4m in world space).
+        ///   Config.VoxelScanStride now acts as a multiplier on top of LOD2 cells.
+        ///   Default stride=1 at LOD2 = thorough scan. stride=2 = fast but may miss 4m veins.
         /// </summary>
         private void ScanVoxelStorage(IMyVoxelMap voxelMap)
         {
             if (voxelMap.Storage == null) return;
-            var storage = (VRage.Game.Voxels.IMyStorage)voxelMap.Storage;
-            Vector3I storageSize = storage.Size;
 
-            int   stride    = Math.Max(1, _config.VoxelScanStride);
-            var   cache     = new MyStorageData();
-            var   foundOres = new HashSet<string>(); // ores found in THIS scan pass
+            var     storage = (VRage.Game.Voxels.IMyStorage)voxelMap.Storage;
+            int     lod     = 2; // LOD2: each cell = 4m³ world-space cube
+            Vector3I lod0Size = storage.Size;
 
-            for (int x = 0; x < storageSize.X; x += stride)
-            for (int y = 0; y < storageSize.Y; y += stride)
-            for (int z = 0; z < storageSize.Z; z += stride)
+            // LOD2 storage dimensions = LOD0 size >> LOD level
+            Vector3I lodSize = new Vector3I(
+                Math.Max(1, lod0Size.X >> lod),
+                Math.Max(1, lod0Size.Y >> lod),
+                Math.Max(1, lod0Size.Z >> lod));
+
+            int     stride    = Math.Max(1, _config.VoxelScanStride); // stride in LOD2 cells
+            var     cache     = new MyStorageData();
+            var     foundOres = new HashSet<string>();
+
+            for (int x = 0; x < lodSize.X; x += stride)
+            for (int y = 0; y < lodSize.Y; y += stride)
+            for (int z = 0; z < lodSize.Z; z += stride)
             {
                 Vector3I cell = new Vector3I(x, y, z);
 
                 try
                 {
-                    // --- PASS 1: Content check (skip empty/air voxels cheaply) ---
+                    // Pass 1: content — skip empty (air) cells cheaply
                     cache.Resize(cell, cell);
-                    storage.ReadRange(cache, MyStorageDataTypeFlags.Content, 0, cell, cell);
-                    if (cache.Content(0) < 64) continue; // Less than 25% solid = skip
+                    storage.ReadRange(cache, MyStorageDataTypeFlags.Content, lod, cell, cell);
+                    if (cache.Content(0) < 32) continue; // < ~12% solid at LOD2 = skip
 
-                    // --- PASS 2: Material read on solid voxels ---
+                    // Pass 2: material on solid cells
                     cache.Resize(cell, cell);
-                    storage.ReadRange(cache, MyStorageDataTypeFlags.Material, 0, cell, cell);
-
+                    storage.ReadRange(cache, MyStorageDataTypeFlags.Material, lod, cell, cell);
                     byte matIdx = cache.Material(0);
-                    if (matIdx == byte.MaxValue) continue; // undefined material
+                    if (matIdx == byte.MaxValue) continue;
 
                     var matDef = MyDefinitionManager.Static.GetVoxelMaterialDefinition(matIdx);
                     if (matDef == null) continue;
@@ -305,76 +266,27 @@ namespace Plugin.Services
                     string ore = matDef.MinedOre;
                     if (ore.Equals("Stone", StringComparison.OrdinalIgnoreCase)) continue;
 
-                    // New ore found on this asteroid
-                    if (foundOres.Add(ore)) // Add returns false if already in set
+                    // foundOres.Add returns false if already in set → no duplicate GPS
+                    if (foundOres.Add(ore))
                         ProcessVoxelDetection(voxelMap, ore);
                 }
-                catch
-                {
-                    // ReadRange can throw on unloaded/corrupted chunks — silently skip
-                }
-            }
-        }
-
-        /// <summary>
-        /// Sphere-scans for grids in range. Excludes own ship and tiny debris.
-        /// </summary>
-        private void ExecuteGridScan(Vector3D origin)
-        {
-            var sphere   = new BoundingSphereD(origin, PulsarScanRange);
-            var entities = MyAPIGateway.Entities.GetEntitiesInSphere(ref sphere);
-
-            foreach (var ent in entities)
-            {
-                var grid = ent as IMyCubeGrid;
-                if (grid == null) continue;
-                if (grid.WorldVolume.Radius <= 2.0f) continue; // debris
-
-                // Check if this is the player's own ship
-                var player = MyAPIGateway.Session.Player;
-                var controlled = player?.Controller?.ControlledEntity?.Entity as IMyCubeGrid;
-                if (controlled != null && grid.EntityId == controlled.EntityId) continue;
-
-                string size     = grid.GridSizeEnum == MyCubeSize.Large ? "Large" : "Small";
-                long   ownerId  = grid.BigOwners?.Count > 0 ? grid.BigOwners[0] : 0;
-                string relation = ownerId != 0
-                    ? player?.GetRelationTo(ownerId).ToString() ?? "Unknown"
-                    : "Neutral";
-
-                CreateGridGps(grid.DisplayName, grid.WorldMatrix.Translation, relation, size);
+                catch { /* unloaded / corrupted chunk — skip silently */ }
             }
         }
 
         // -----------------------------------------------------------------------
-        // GPS SYNC
-        // -----------------------------------------------------------------------
-
-        private void SyncGps(ResourceMarker marker)
-        {
-            if (marker.Gps != null)
-                MyAPIGateway.Session.GPS.RemoveLocalGps(marker.Gps);
-
-            string label = $"[Pulsar] {marker.Title} ({marker.OreName})";
-            var gps = MyAPIGateway.Session.GPS.Create(label, "Pulsar Ore Survey", marker.Position, true);
-            gps.GPSColor = Color.Yellow;
-            MyAPIGateway.Session.GPS.AddLocalGps(gps);
-            marker.Gps = gps;
-        }
-
-        // -----------------------------------------------------------------------
-        // STATIC HELPERS (used by InputHandlerService laser scan)
+        // STATIC HELPERS (used by InputHandlerService for laser scan)
         // -----------------------------------------------------------------------
 
         /// <summary>
-        /// Samples voxel material at multiple penetration depths beyond a surface hit point.
-        /// Used by the laser rangefinder for on-demand single-point ore identification.
-        /// Returns first non-Stone ore, or null if only stone/empty found.
+        /// Samples voxel material at multiple penetration depths from a surface hit point.
+        /// Used by the laser rangefinder for on-demand single-point ore ID.
+        /// Returns first non-Stone ore or null.
         /// </summary>
         public static string SampleOreAtDepths(
             IMyVoxelBase voxel, Vector3D surfacePos, Vector3D direction, float[] depths)
         {
             if (voxel?.Storage == null || depths == null || depths.Length == 0) return null;
-
             var storage = (VRage.Game.Voxels.IMyStorage)voxel.Storage;
             var cache   = new MyStorageData();
 
@@ -383,7 +295,6 @@ namespace Plugin.Services
                 Vector3D worldSample = surfacePos + direction * depth;
                 Vector3D localPos    = worldSample - voxel.PositionLeftBottomCorner;
                 Vector3I voxelCell   = Vector3I.Round(localPos);
-
                 if (voxelCell.X < 0 || voxelCell.Y < 0 || voxelCell.Z < 0) continue;
 
                 try
@@ -400,20 +311,14 @@ namespace Plugin.Services
                     if (!ore.Equals("Stone", StringComparison.OrdinalIgnoreCase))
                         return ore;
                 }
-                catch { /* unloaded chunk — try next depth */ }
+                catch { }
             }
-
             return null;
         }
 
-        // -----------------------------------------------------------------------
-        // PRIVATE HELPERS
-        // -----------------------------------------------------------------------
-
-        /// <summary>Builds a comma-separated fauna string from a planet's day+night spawn tables.</summary>
         public static string BuildFaunaString(MyPlanet planet)
         {
-            var sb  = new System.Text.StringBuilder();
+            var sb    = new System.Text.StringBuilder();
             var day   = planet.Generator.AnimalSpawnInfo;
             var night = planet.Generator.NightAnimalSpawnInfo;
 
@@ -433,6 +338,18 @@ namespace Plugin.Services
             add(day);
             add(night);
             return sb.Length > 0 ? sb.ToString() : "None";
+        }
+
+        private void SyncGps(ResourceMarker marker)
+        {
+            if (marker.Gps != null)
+                MyAPIGateway.Session.GPS.RemoveLocalGps(marker.Gps);
+
+            string label = $"[Pulsar] {marker.Title} ({marker.OreName})";
+            var gps = MyAPIGateway.Session.GPS.Create(label, "Pulsar Ore Survey", marker.Position, true);
+            gps.GPSColor = Color.Yellow;
+            MyAPIGateway.Session.GPS.AddLocalGps(gps);
+            marker.Gps = gps;
         }
     }
 }

@@ -10,7 +10,7 @@ Unlike standard scripts, Pulsar is a standalone plugin that leverages deep game 
 **C#**: 4.7.2+ / .NET Framework 4.8  
 **Space Engineers**: 1.204+  
 **Author**: mamba  
-**Version**: 1.0.106
+**Version**: 1.0.114
 
 ---
 ## 🚀 Project Status: Feature Complete (v1.0)

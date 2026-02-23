@@ -18,38 +18,46 @@ namespace Plugin.Services
         }
 
         /// <summary>
-        /// Calculates available braking thrust by summing MaxEffectiveThrust from all
-        /// working thruster blocks whose force vector opposes the current velocity.
+        /// Calculates available braking thrust by summing working thruster blocks
+        /// whose force OPPOSES the current velocity direction.
         ///
-        /// WHY live thrust?
-        ///   The braking tunnel length = v² / (2a). If the pilot adds 6 extra rear
-        ///   thrusters in flight, the tunnel must shorten to reflect the stronger braking.
-        ///   A hardcoded DefaultThrustForce would never react to this change.
+        /// SE THRUSTER CONVENTION:
+        ///   In Space Engineers, thruster.WorldMatrix.Forward is the direction of
+        ///   THRUST FORCE (the direction the ship is pushed), NOT the exhaust direction.
+        ///   Example: rear thruster pushes ship FORWARD → WorldMatrix.Forward = ship.Forward.
         ///
-        /// FALLBACK:
-        ///   If no working thrusters are found (e.g., grid damage or script conflict),
-        ///   Config.DefaultThrustForce is used so the tunnel still renders.
+        /// BRAKING LOGIC:
+        ///   Braking force = thrust that opposes velocity.
+        ///   If velocity = Forward, braking thrusters are those with Forward ≈ -velocity.
+        ///   Dot product: contribution = dot(thruster.Forward, -velocityDir)
+        ///   Positive contribution → thruster helps slow down.
+        ///
+        /// WHY PREVIOUS VERSION WAS WRONG:
+        ///   Old code: dot(thruster.Forward, +velocityDir) > 0 → summed ACCELERATING thrusters.
+        ///   This gave wrong stopping distance AND caused backward movement to always appear red
+        ///   (forward thrusters were counted as "braking" backward motion).
+        ///
+        /// FALLBACK: Config.DefaultThrustForce when no braking thrusters are found.
         /// </summary>
         public float CalculateLiveThrustForce(IMyShipController ship)
         {
             if (ship == null) return _config.Data.DefaultThrustForce;
 
-            // Collect all thruster blocks on the ship's grid
             var thrusters = new List<IMyTerminalBlock>();
             MyAPIGateway.TerminalActionsHelper
                 .GetTerminalSystemForGrid(ship.CubeGrid)
                 .GetBlocksOfType<IMyThrust>(thrusters);
 
-            if (thrusters.Count == 0)
-                return _config.Data.DefaultThrustForce; // no thrusters found — use config fallback
+            if (thrusters.Count == 0) return _config.Data.DefaultThrustForce;
 
-            // Determine braking direction: opposite to current velocity.
-            // If nearly stationary, use ship's forward vector as fallback.
             Vector3D velocityDir = ship.GetShipVelocities().LinearVelocity;
-            if (velocityDir.LengthSquared() > 0.01)
-                velocityDir = Vector3D.Normalize(velocityDir);
-            else
+            if (velocityDir.LengthSquared() < 0.01)
                 velocityDir = ship.WorldMatrix.Forward;
+            else
+                velocityDir = Vector3D.Normalize(velocityDir);
+
+            // Braking direction is OPPOSITE to velocity
+            Vector3D brakeDir = -velocityDir;
 
             float brakingThrust = 0f;
             foreach (var block in thrusters)
@@ -57,56 +65,54 @@ namespace Plugin.Services
                 var thruster = block as IMyThrust;
                 if (thruster == null || !thruster.IsWorking) continue;
 
-                // thruster.WorldMatrix.Forward = direction the exhaust exits (world space)
-                // The actual thrust force acts in the OPPOSITE direction of exhaust
-                // Dot against -velocityDir tells us how well this thruster brakes
-                double contribution = Vector3D.Dot(thruster.WorldMatrix.Forward, velocityDir);
-
-                // contribution > 0 means: thruster exhaust points along velocity = thrust opposes velocity
+                // FIX: dot against brakeDir (opposite to velocity), not velocityDir
+                // Positive result = this thruster pushes against our motion = braking
+                double contribution = Vector3D.Dot(thruster.WorldMatrix.Forward, brakeDir);
                 if (contribution > 0)
                     brakingThrust += thruster.MaxEffectiveThrust * (float)contribution;
             }
 
-            // If no thruster contributes braking force in current direction, use config fallback
             return brakingThrust > 0 ? brakingThrust : _config.Data.DefaultThrustForce;
         }
 
         /// <summary>
-        /// Calculates max deceleration (m/s²) = F / m.
-        /// Uses live thrust force from actual thruster blocks.
+        /// Returns total ship mass in kg — matches the value shown in the SE HUD.
+        ///
+        /// WHY NOT entity.Physics.Mass:
+        ///   Physics.Mass can return structural mass only (without cargo/inventory).
+        ///   CalculateShipMass() includes everything: structure, cargo, fuel, players.
+        ///   This matches what the SE native HUD displays.
         /// </summary>
+        public float GetTotalMass(IMyShipController ship)
+        {
+            if (ship == null) return 0f;
+            // CalculateShipMass returns the full mass including cargo/inventory
+            var massInfo = ship.CalculateShipMass();
+            return massInfo.TotalMass;
+        }
+
+        /// <summary>Max deceleration (m/s²) = live braking force / total mass.</summary>
         public float CalculateMaxDeceleration(IMyShipController ship)
         {
             if (ship == null || ship.CubeGrid == null) return 0f;
-
-            var entity = ship.CubeGrid as MyEntity;
-            if (entity?.Physics == null) return 0f;
-
-            float mass        = entity.Physics.Mass;
-            float totalThrust = CalculateLiveThrustForce(ship);
-
-            return mass > 0 ? totalThrust / mass : 0f;
+            float mass   = GetTotalMass(ship);
+            float thrust = CalculateLiveThrustForce(ship);
+            return mass > 0 ? thrust / mass : 0f;
         }
 
-        /// <summary>
-        /// Calculates minimum stopping distance in meters using: s = v² / (2a).
-        /// Returns 0 when deceleration cannot be determined.
-        /// </summary>
+        /// <summary>Minimum stopping distance: s = v² / (2a).</summary>
         public float CalculateStoppingDistance(IMyShipController ship)
         {
             if (ship == null) return 0f;
-
             double velocity = ship.GetShipSpeed();
             float maxDecel  = CalculateMaxDeceleration(ship);
-
             if (maxDecel <= 0) return 0f;
-
             return (float)((velocity * velocity) / (2.0 * maxDecel));
         }
 
         /// <summary>
         /// Returns true if there is a solid obstacle within 'distance' meters along the velocity vector.
-        /// Fallback: if speed is near zero, checks along the ship's forward axis.
+        /// Fallback to forward vector if nearly stationary.
         /// </summary>
         public bool IsCollisionImminent(IMyShipController ship, double distance)
         {
@@ -124,32 +130,23 @@ namespace Plugin.Services
         }
 
         /// <summary>
-        /// Fires a raycast from the ship's nose along its forward vector.
-        /// LaserMaxRange is read from config — NOT hardcoded.
-        /// Returns distance to first obstacle, or -1 if path is clear.
+        /// Laser rangefinder raycast along the ship's forward axis.
+        /// Range from Config.LaserMaxRange — not hardcoded.
+        /// Offset 5m forward to clear own collision mesh.
+        /// Returns distance to hit, or -1 if clear.
         /// </summary>
         public double RaycastDistance(IMyShipController ship)
         {
             if (ship == null) return -1;
-
-            // FIX: maxRange now comes from config, not hardcoded at call site
             double maxRange = _config.Data.LaserMaxRange;
-
-            // Offset 2.5m forward to avoid self-hit on the ship's own collision mesh
-            Vector3D start     = ship.WorldMatrix.Translation + ship.WorldMatrix.Forward * 2.5;
-            Vector3D direction = ship.WorldMatrix.Forward;
-            Vector3D end       = start + direction * maxRange;
-
+            Vector3D start  = ship.WorldMatrix.Translation + ship.WorldMatrix.Forward * 5.0;
+            Vector3D end    = start + ship.WorldMatrix.Forward * maxRange;
             IHitInfo hit;
             if (MyAPIGateway.Physics.CastRay(start, end, out hit))
                 return Vector3D.Distance(start, hit.Position);
-
             return -1;
         }
 
-        /// <summary>
-        /// Returns the true terrain altitude above the closest planet, or -1 in space.
-        /// </summary>
         public double GetDistanceToSurface(IMyShipController ship, MyPlanet planet)
         {
             if (planet == null || ship == null) return -1;

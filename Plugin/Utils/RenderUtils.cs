@@ -1,4 +1,5 @@
 // Plugin/Utils/RenderUtils.cs
+using System;
 using Sandbox.ModAPI;
 using VRage.Game;
 using VRage.Utils;
@@ -9,68 +10,117 @@ namespace Plugin.Utils
     public static class RenderUtils
     {
         /// <summary>
-        /// Renders a 3D rectangular tunnel along the ship's velocity vector.
-        /// Frames (rings) are spaced 20m apart from origin to 'length' meters.
-        /// Each ring is drawn as 4 line billboards forming a square cross-section.
+        /// Renders an animated braking tunnel along the VELOCITY vector (not ship forward).
         ///
-        /// Fallback: if ship is nearly stationary, uses the forward vector instead of velocity.
-        /// This prevents the tunnel from collapsing to a point at low speed.
+        /// RING ORIENTATION FIX:
+        ///   Rings must lie in a plane PERPENDICULAR to the velocity vector.
+        ///   Previously used ship.WorldMatrix.Up/Left which caused "flat glass" appearance
+        ///   when drifting sideways or vertically — the ring plane was not facing the travel direction.
+        ///   Fix: compute two basis vectors orthogonal to velocity using cross products.
+        ///     ringRight = normalize(velocity × worldUp)   [handle parallel case]
+        ///     ringUp    = normalize(ringRight × velocity)
+        ///   These always define a plane perpendicular to velocity regardless of ship heading.
         ///
-        /// Color semantics (set by FlightComputerService):
-        ///   Green  → clear path
-        ///   Orange → caution zone (within stopping distance)
-        ///   Red    → imminent collision (within 50% of stopping distance)
+        /// BACKWARD MOVEMENT:
+        ///   Rings draw behind the ship when velocity is backward — correct behavior.
+        ///   Red color = collision within stopping distance, NOT direction judgment.
+        ///   If moving backward near terrain, red is correct and expected.
+        ///
+        /// ANIMATION:
+        ///   Position-based scroll offset (worldPos projected onto velocity, mod spacing).
+        ///   Rings appear to approach the ship continuously without timer state.
+        ///
+        /// TRANSPARENCY:
+        ///   Quadratic fade: alpha = baseAlpha × (1 − t²) where t = d/length.
+        ///   Near rings most visible, far rings ghost out — "virtual" appearance.
         /// </summary>
         public static void DrawTunnel(
             IMyShipController ship,
             double length,
             Color color,
-            float alpha,
+            float baseAlpha,
             float scale,
             string materialName,
-            float thickness)
+            float thickness,
+            float ringSpacing)
         {
-            Vector3D velocity = ship.GetShipVelocities().LinearVelocity;
+            if (length <= 0 || ringSpacing <= 0) return;
 
-            if (velocity.LengthSquared() < 1)
-                velocity = ship.WorldMatrix.Forward; // stationary fallback
+            Vector3D velocity = ship.GetShipVelocities().LinearVelocity;
+            if (velocity.LengthSquared() < 0.25)
+                velocity = ship.WorldMatrix.Forward;
             else
                 velocity = Vector3D.Normalize(velocity);
 
-            Vector3D   startPos = ship.WorldMatrix.Translation;
-            MyStringId matId    = MyStringId.GetOrCompute(materialName);
+            // ---------------------------------------------------------------
+            // COMPUTE RING BASIS VECTORS — perpendicular to velocity
+            //
+            // We need two vectors (ringUp, ringRight) that together define the
+            // plane of each ring, which must face the travel direction.
+            //
+            // Cross product method:
+            //   1. Pick a world reference "up" (Y axis)
+            //   2. If velocity is nearly parallel to Y, fall back to Z axis
+            //   3. ringRight = normalize(velocity × refUp)
+            //   4. ringUp    = normalize(ringRight × velocity)
+            // ---------------------------------------------------------------
+            Vector3D refUp = Vector3D.UnitY;
+            if (Math.Abs(Vector3D.Dot(velocity, refUp)) > 0.99)
+                refUp = Vector3D.UnitZ; // fallback when flying straight up/down
 
-            Vector4 renderColor = color.ToVector4();
-            renderColor.W = alpha; // Apply configured transparency
+            Vector3D ringRight = Vector3D.Normalize(Vector3D.Cross(velocity, refUp));
+            Vector3D ringUp    = Vector3D.Normalize(Vector3D.Cross(ringRight, velocity));
 
-            for (double d = 20; d <= length; d += 20)
+            Vector3D   origin = ship.WorldMatrix.Translation;
+            MyStringId matId  = MyStringId.GetOrCompute(materialName);
+
+            // Animation scroll: project world position onto velocity axis, mod spacing
+            double projection  = Vector3D.Dot(origin, velocity);
+            double scrollOffset = ringSpacing - (Math.Abs(projection) % ringSpacing);
+
+            // Cap ring count to keep render budget sane
+            int maxRings = (int)Math.Min(length / ringSpacing, 40);
+
+            for (int i = 0; i < maxRings; i++)
             {
-                Vector3D center = startPos + velocity * d;
-                DrawFrame(center, ship.WorldMatrix, renderColor, scale, matId, thickness);
+                double d = scrollOffset + i * ringSpacing;
+                if (d > length) break;
+
+                // Quadratic alpha fade: near = visible, far = near-invisible
+                float t     = (float)(d / length);
+                float alpha = baseAlpha * (1f - t * t);
+                if (alpha < 0.004f) continue;
+
+                Vector3D center = origin + velocity * d;
+                Vector4 renderColor = color.ToVector4();
+                renderColor.W = alpha;
+
+                DrawFrame(center, ringUp, ringRight, renderColor, scale, matId, thickness);
             }
         }
 
         /// <summary>
-        /// Draws a single rectangular ring at 'center'.
-        /// Corners are computed from the ship's world-space Up and Left axes.
+        /// Draws one rectangular ring at 'center'.
+        /// Uses velocity-perpendicular basis vectors (ringUp, ringRight) — NOT ship orientation.
+        /// This ensures rings always face the direction of travel.
         /// </summary>
         private static void DrawFrame(
             Vector3D center,
-            MatrixD worldMatrix,
+            Vector3D ringUp,
+            Vector3D ringRight,
             Vector4 color,
             float scale,
             MyStringId matId,
             float thickness)
         {
-            Vector3D up   = worldMatrix.Up   * scale;
-            Vector3D left = worldMatrix.Left * scale;
+            Vector3D up   = ringUp    * scale;
+            Vector3D left = ringRight * scale;
 
-            Vector3D tl = center + up + left;  // top-left corner
-            Vector3D tr = center + up - left;  // top-right corner
-            Vector3D bl = center - up + left;  // bottom-left corner
-            Vector3D br = center - up - left;  // bottom-right corner
+            Vector3D tl = center + up + left;
+            Vector3D tr = center + up - left;
+            Vector3D bl = center - up + left;
+            Vector3D br = center - up - left;
 
-            // Four edges of the rectangular ring
             MyTransparentGeometry.AddLineBillboard(matId, color, tl, (Vector3)(tr - tl), 1f, thickness);
             MyTransparentGeometry.AddLineBillboard(matId, color, tr, (Vector3)(br - tr), 1f, thickness);
             MyTransparentGeometry.AddLineBillboard(matId, color, br, (Vector3)(bl - br), 1f, thickness);

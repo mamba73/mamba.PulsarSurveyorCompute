@@ -1,80 +1,117 @@
 // Plugin/Models/Config.cs
-using System;
 using System.Xml.Serialization;
 using VRageMath;
 
 namespace Plugin.Models
 {
     /// <summary>
-    /// Persistent configuration for the Pulsar plugin.
-    /// RULE: Every tunable value lives here — nothing hardcoded in service logic.
+    /// Persistent configuration. RULE: All tunable values live here — nothing hardcoded in service logic.
     /// </summary>
     public class Config
     {
-        // --- HUD ---
-        public Vector2 HudPosition { get; set; } = new Vector2(0.85f, 0.10f);
-
-        // --- TUNNEL ---
+        // ===================================================================
+        // TUNNEL
+        // ===================================================================
+        /// <summary>MyTransparentGeometry material name for tunnel ring lines.
+        /// Valid built-in SE values: "Square" (solid line), "WhiteBlock", "Dot", "ContainerBorder".
+        /// "Circle" is NOT a valid SE geometry material and will cause invisible rings.
+        /// To try alternatives: change and rebuild. "Square" is most reliable.</summary>
         public string TunnelMaterial      { get; set; } = "Square";
-        public float  TunnelLineThickness { get; set; } = 0.2f;
-        public float  TunnelTransparency  { get; set; } = 0.4f;
+        public float  TunnelLineThickness { get; set; } = 0.15f;
+        /// <summary>Base alpha for nearest ring. Far rings fade to ~0 via quadratic falloff.
+        /// 0.08–0.15 = subtle/virtual. 0.3+ = very visible.</summary>
+        public float  TunnelTransparency  { get; set; } = 0.10f;
+        /// <summary>Half-size (m) of each tunnel ring cross-section.</summary>
         public float  TunnelScale         { get; set; } = 15f;
+        /// <summary>Distance (m) between tunnel rings. Rule: ~cruise_speed / 5.
+        /// At 100 m/s → 20m. At 500 m/s → 100m. Default 80m works for most speeds.</summary>
+        public float  TunnelRingSpacing   { get; set; } = 100f;
+        /// <summary>Minimum speed (m/s) to render the braking tunnel.</summary>
+        public float  MinSpeedForTunnel   { get; set; } = 5.0f;
 
-        // --- INPUT ---
-        public string RangefinderHotkey { get; set; } = "T";
+        // ===================================================================
+        // HUD — WHAT TO SHOW
+        // ===================================================================
+        /// <summary>Show ship mass on HUD. Disable if you already read it from SE native HUD.</summary>
+        public bool HudShowMass    { get; set; } = false;
+        /// <summary>Show max deceleration (m/s²) on HUD.</summary>
+        public bool HudShowDecel   { get; set; } = true;
+        /// <summary>Show terrain altitude on HUD.</summary>
+        public bool HudShowAlt     { get; set; } = true;
+        /// <summary>Show natural gravity in G on HUD.</summary>
+        public bool HudShowGravity { get; set; } = true;
+        /// <summary>Show last laser rangefinder distance on HUD.</summary>
+        public bool HudShowLaser   { get; set; } = true;
+        /// <summary>Show planet approach block (name, GW distance, gravity sustainability) on HUD.</summary>
+        public bool HudShowPlanet  { get; set; } = true;
 
-        // --- SURVEY / SCAN ---
+        // ===================================================================
+        // HUD — REFRESH RATE
+        // ===================================================================
         /// <summary>
-        /// Pulsar's own scan radius (meters), completely independent of the vanilla
-        /// Ore Detector block range. The vanilla block has a hard cap (~150m by definition);
-        /// Pulsar uses entity-based scanning so this limit can be freely set up to 2500m.
-        /// Controlled via the "Pulsar: Scan Range" slider in the Ore Detector terminal.
+        /// How often (in game ticks) the full planet search runs.
+        /// 60 ticks = 1 second. Default 1800 = 30 seconds.
+        /// Increase if you travel between planets frequently (try 300 = 5s).
+        /// Decrease if you notice stale planet info (will slightly increase CPU usage).
+        /// Planet data is cached between refreshes — fast jumps may show stale data
+        /// until the next refresh cycle completes.
         /// </summary>
-        public float PulsarScanRange { get; set; } = 1000f;
+        public int PlanetRefreshTicks { get; set; } = 1800;
+
+        // ===================================================================
+        // GRAVITY WELL VISUALIZATION
+        // ===================================================================
+        /// <summary>Show gravity well sphere while in cockpit (first-person view).</summary>
+        public bool GravityWellShowCockpit  { get; set; } = true;
+        /// <summary>Show gravity well sphere while in external/third-person view.
+        /// Disable if external view causes lag (sphere draws many line segments).</summary>
+        public bool GravityWellShowExternal { get; set; } = false;
+
+        /// <summary>Color of the gravity well visualization rings (RGBA, 0–255 each).</summary>
+        public SerializableVector4 GravityWellColor { get; set; }
+            = new SerializableVector4 { X = 0.4f, Y = 0.7f, Z = 1.0f, W = 0.18f };
 
         /// <summary>
-        /// Max value the "Pulsar: Scan Range" terminal slider will allow.
-        /// Increase this if you want to scan further, but expect longer scan times.
+        /// Maximum distance from planet CENTER (meters) within which the gravity well
+        /// sphere becomes visible. Set to 0 to always show when inside the well.
+        /// Default: 0 (show whenever inside gravity well radius).
+        /// Example: set to 500000 to start showing when within 500km of center.
         /// </summary>
-        public float MaxScanRange { get; set; } = 2500f;
+        public double GravityWellShowRadius { get; set; } = 0;
 
-        /// <summary>
-        /// Stride (meters) between sample points when scanning inside a voxel's storage.
-        /// Smaller = more accurate ore detection but slower.
-        /// Default 8m: catches ore veins ≥ 8m wide (most SE ores are 10-100m wide).
-        /// </summary>
-        public int VoxelScanStride { get; set; } = 8;
+        /// <summary>Number of points used to draw each circle of the gravity well sphere.
+        /// More = smoother circle but more draw calls. Default 64.</summary>
+        public int GravityWellSegments { get; set; } = 64;
 
-        /// <summary>
-        /// GPS sector radius for grouping detections on the same physical asteroid.
-        /// All ore found on one voxel entity goes to one GPS marker regardless of this.
-        /// This value is used only for the spatial-hash fallback (non-entity detections).
-        /// </summary>
-        public float SectorSize { get; set; } = 500f;
-
-        /// <summary>Max range for the laser rangefinder (meters). Default: 50 000m.</summary>
-        public double LaserMaxRange { get; set; } = 50000.0;
-
-        /// <summary>
-        /// Penetration depths (meters) tried by the laser rangefinder when sampling
-        /// voxel material. First non-Stone result wins.
-        /// </summary>
+        // ===================================================================
+        // SURVEY / SCAN
+        // ===================================================================
+        public float  PulsarScanRange  { get; set; } = 5000f;
+        public float  MaxScanRange     { get; set; } = 50000f;
+        public int    VoxelScanStride  { get; set; } = 1;
+        public float  SectorSize       { get; set; } = 1000f;
+        public double LaserMaxRange    { get; set; } = 50000.0;
         public float[] VoxelPenetrationDepths { get; set; } = { 0.5f, 1f, 2f, 5f, 10f, 20f };
 
-        // --- PHYSICS ---
-        /// <summary>Fallback thrust (N) when no working thrusters are found.</summary>
-        public float DefaultThrustForce { get; set; } = 1000000f;
+        // ===================================================================
+        // PHYSICS
+        // ===================================================================
+        public float  DefaultThrustForce         { get; set; } = 1000000f;
+        public double PlanetDetectionMultiplier  { get; set; } = 3.0;
+        public float  GravityWellWarnDistance    { get; set; } = 5000f;
+    }
 
-        /// <summary>Planet gravity zone = AverageRadius × this multiplier.</summary>
-        public double PlanetDetectionMultiplier { get; set; } = 3.0;
+    /// <summary>
+    /// XML-serializable Vector4 (VRageMath.Vector4 is not XML-serializable by default).
+    /// </summary>
+    public class SerializableVector4
+    {
+        public float X { get; set; }
+        public float Y { get; set; }
+        public float Z { get; set; }
+        public float W { get; set; }
 
-        /// <summary>Minimum speed (m/s) to activate the braking tunnel.</summary>
-        public float MinSpeedForTunnel { get; set; } = 1.0f;
-
-        /// <summary>
-        /// Distance from gravity well edge (meters) at which the "gravity approach" 
-        /// warning starts showing on the HUD. Default: 5000m before the well boundary.
-        /// </summary>
-        public float GravityWellWarnDistance { get; set; } = 5000f;
+        public Vector4 ToVector4() => new Vector4(X, Y, Z, W);
+        public Color   ToColor()   => new Color(X, Y, Z, W);
     }
 }

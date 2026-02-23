@@ -9,7 +9,7 @@ namespace Plugin.Services
     public class FlightComputerService
     {
         private readonly PhysicsService _physics;
-        private readonly ConfigService _configService;
+        private readonly ConfigService  _configService;
 
         public FlightComputerService(PhysicsService physics, ConfigService configService)
         {
@@ -18,30 +18,33 @@ namespace Plugin.Services
         }
 
         /// <summary>
-        /// Renders the predictive braking tunnel and evaluates the collision status.
+        /// Renders the animated braking tunnel and evaluates collision status.
         ///
         /// Tunnel color:
-        ///   Green  → clear path (no obstacle within full stopping distance)
-        ///   Orange → caution (obstacle within full stopping distance)
-        ///   Red    → imminent (obstacle within 50% of stopping distance = must brake now)
+        ///   Green  → clear path
+        ///   Orange → obstacle within full stopping distance
+        ///   Red    → obstacle within 50% of stopping distance (brake NOW)
         ///
-        /// Returns true when a collision is detected — used by AudioService and HUD.
+        /// Tunnel appearance:
+        ///   Rings scroll toward the ship (position-based animation).
+        ///   Near rings are more opaque; far rings fade to near-invisible.
+        ///   Base alpha from Config.TunnelTransparency (default 0.12 — subtle).
+        ///
+        /// Returns true when a collision is imminent — drives AudioService and HUD warning.
         /// </summary>
         public bool DrawBrakingTunnel(IMyShipController ship)
         {
             if (ship == null || ship.CubeGrid.IsStatic) return false;
 
-            // MinSpeedForTunnel from config — not hardcoded
             double velocity = ship.GetShipSpeed();
             if (velocity < _configService.Data.MinSpeedForTunnel) return false;
 
-            // FIX (CS0128 guard): stoppingDistance declared ONCE here.
-            // Previous versions had a duplicate declaration that prevented compilation.
+            // CS0128 guard: stoppingDistance declared ONCE
             float stoppingDistance = _physics.CalculateStoppingDistance(ship);
             if (stoppingDistance <= 0) return false;
 
-            bool hasCollision = _physics.IsCollisionImminent(ship, stoppingDistance);
-            Color tunnelColor = GetSafetyColor(ship, stoppingDistance);
+            bool  hasCollision = _physics.IsCollisionImminent(ship, stoppingDistance);
+            Color tunnelColor  = GetSafetyColor(ship, stoppingDistance);
 
             RenderUtils.DrawTunnel(
                 ship,
@@ -50,18 +53,13 @@ namespace Plugin.Services
                 _configService.Data.TunnelTransparency,
                 _configService.Data.TunnelScale,
                 _configService.Data.TunnelMaterial,
-                _configService.Data.TunnelLineThickness
+                _configService.Data.TunnelLineThickness,
+                _configService.Data.TunnelRingSpacing   // new: animated ring spacing
             );
 
             return hasCollision;
         }
 
-        /// <summary>
-        /// Evaluates two distance thresholds and returns the appropriate warning color.
-        ///   50% of stopping distance → Red (must brake NOW)
-        ///   100% of stopping distance → Orange (braking zone entered)
-        ///   Clear → Green
-        /// </summary>
         private Color GetSafetyColor(IMyShipController ship, double fullStopDist)
         {
             if (_physics.IsCollisionImminent(ship, fullStopDist * 0.5)) return Color.Red;
