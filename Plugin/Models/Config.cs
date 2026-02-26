@@ -25,7 +25,7 @@ namespace Plugin.Models
         public float  TunnelScale         { get; set; } = 15f;
         /// <summary>Distance (m) between tunnel rings. Rule: ~cruise_speed / 5.
         /// At 100 m/s → 20m. At 500 m/s → 100m. Default 80m works for most speeds.</summary>
-        public float  TunnelRingSpacing   { get; set; } = 100f;
+        public float  TunnelRingSpacing   { get; set; } = 80f;
         /// <summary>Minimum speed (m/s) to render the braking tunnel.</summary>
         public float  MinSpeedForTunnel   { get; set; } = 5.0f;
 
@@ -86,10 +86,10 @@ namespace Plugin.Models
         // ===================================================================
         // SURVEY / SCAN
         // ===================================================================
-        public float  PulsarScanRange  { get; set; } = 5000f;
-        public float  MaxScanRange     { get; set; } = 50000f;
+        public float  PulsarScanRange  { get; set; } = 1000f;
+        public float  MaxScanRange     { get; set; } = 2500f;
         public int    VoxelScanStride  { get; set; } = 1;
-        public float  SectorSize       { get; set; } = 1000f;
+        public float  SectorSize       { get; set; } = 200f;
         public double LaserMaxRange    { get; set; } = 50000.0;
         public float[] VoxelPenetrationDepths { get; set; } = { 0.5f, 1f, 2f, 5f, 10f, 20f };
 

@@ -38,6 +38,11 @@ namespace Plugin
             _terminalControls = new TerminalControlService(_gpsManager, _configService);
             _gravityWell      = new GravityWellRenderer(_configService);
 
+            // CRITICAL: Register toolbar actions early via InvokeOnGameThread.
+            // Must happen before any terminal panel is opened — SE caches action list
+            // per block type on first open. If we wait until Update() it may be too late.
+            _terminalControls.InitEarly();
+
             _initialized = true;
         }
 
