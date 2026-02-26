@@ -19,6 +19,7 @@ namespace Plugin
         private AudioService           _audio;
         private TerminalControlService _terminalControls;
         private GravityWellRenderer    _gravityWell;
+        private AsteroidFullScanService _asteroidScanner;
 
         private double _lastRange   = -1;
         private bool   _initialized = false;
@@ -31,16 +32,12 @@ namespace Plugin
             _gpsManager       = new GpsManagerService(_configService.Data);
             _flightComputer   = new FlightComputerService(_physics, _configService);
             _telemetry        = new TelemetryService(_configService);
-            _inputHandler     = new InputHandlerService(_configService.Data, _physics, _gpsManager);
+            _asteroidScanner  = new AsteroidFullScanService(_gpsManager, _configService);
+            _inputHandler     = new InputHandlerService(_configService.Data, _physics, _gpsManager, _asteroidScanner);
             _hudDisplay       = new HudDisplayService(_configService);
             _audio            = new AudioService();
             _terminalControls = new TerminalControlService(_gpsManager, _configService);
             _gravityWell      = new GravityWellRenderer(_configService);
-
-            // CRITICAL: Register toolbar actions early via InvokeOnGameThread.
-            // Must happen before any terminal panel is opened — SE caches action list
-            // per block type on first open. If we wait until Update() it may be too late.
-            _terminalControls.InitEarly();
 
             _initialized = true;
         }

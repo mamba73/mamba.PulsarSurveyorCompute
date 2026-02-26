@@ -10,6 +10,13 @@ namespace Plugin.Models
     public class Config
     {
         // ===================================================================
+        // VERSION (read-only display — do not edit in config.xml)
+        // ===================================================================
+        /// <summary>Plugin version shown in terminal label and startup notification.
+        /// This is set by the build system and should not be manually edited.</summary>
+        public string PluginVersion { get; set; } = "1.0.126";
+
+        // ===================================================================
         // TUNNEL
         // ===================================================================
         /// <summary>MyTransparentGeometry material name for tunnel ring lines.
@@ -25,7 +32,7 @@ namespace Plugin.Models
         public float  TunnelScale         { get; set; } = 15f;
         /// <summary>Distance (m) between tunnel rings. Rule: ~cruise_speed / 5.
         /// At 100 m/s → 20m. At 500 m/s → 100m. Default 80m works for most speeds.</summary>
-        public float  TunnelRingSpacing   { get; set; } = 80f;
+        public float  TunnelRingSpacing   { get; set; } = 100f;
         /// <summary>Minimum speed (m/s) to render the braking tunnel.</summary>
         public float  MinSpeedForTunnel   { get; set; } = 5.0f;
 
@@ -56,6 +63,13 @@ namespace Plugin.Models
         /// Planet data is cached between refreshes — fast jumps may show stale data
         /// until the next refresh cycle completes.
         /// </summary>
+        /// <summary>Enable periodic planet data refresh. When false, planet info is
+        /// computed once on cockpit entry and never updated. Enable if you jump between planets.</summary>
+        public bool PlanetRefreshEnabled { get; set; } = false;
+
+        /// <summary>How often (ticks) the planet selection reruns. 60 ticks = 1 second.
+        /// Default 1800 = 30s. Reduce to 300 (5s) if you jump frequently.
+        /// Has no effect when PlanetRefreshEnabled = false.</summary>
         public int PlanetRefreshTicks { get; set; } = 1800;
 
         // ===================================================================
@@ -86,12 +100,54 @@ namespace Plugin.Models
         // ===================================================================
         // SURVEY / SCAN
         // ===================================================================
-        public float  PulsarScanRange  { get; set; } = 1000f;
-        public float  MaxScanRange     { get; set; } = 2500f;
+        /// <summary>Default scan radius (m) for the sector ore scan.
+        /// Also the initial slider value shown in the Ore Detector terminal.</summary>
+        public float  PulsarScanRange  { get; set; } = 2500f;
+
+        /// <summary>Maximum value of the scan range slider in the terminal UI.</summary>
+        public float  MaxScanRange     { get; set; } = 25000f;
+
+        /// <summary>Stride (in LOD2 cells) for the voxel scan. 1 = thorough, 2 = faster.
+        /// At LOD2 one cell = 4m³. Stride 1 checks every 4m, stride 2 every 8m.
+        /// Ore veins can be as narrow as 3-5m so stride 1 is recommended.</summary>
         public int    VoxelScanStride  { get; set; } = 1;
-        public float  SectorSize       { get; set; } = 200f;
+
+        /// <summary>Sector name prefix used in GPS labels (e.g. "S01 A01 Iron").</summary>
+        public float  SectorSize       { get; set; } = 1000f;
+
+        /// <summary>Maximum range (m) for the laser rangefinder (T key).</summary>
         public double LaserMaxRange    { get; set; } = 50000.0;
-        public float[] VoxelPenetrationDepths { get; set; } = { 0.5f, 1f, 2f, 5f, 10f, 20f };
+
+        /// <summary>
+        /// Penetration depths (meters) for laser ore sampling.
+        ///
+        /// When the laser hits an asteroid surface, Pulsar samples the voxel material
+        /// at each of these depths below the impact point. This is needed because the
+        /// surface layer is almost always Stone — ore veins start a few meters underneath.
+        ///
+        /// How it works:
+        ///   depth 0.5m → surface check (usually Stone)
+        ///   depth 1-2m → shallow subsurface (thin Stone shell)
+        ///   depth 5-10m → typical ore vein depth for most SE asteroid types
+        ///   depth 20m  → catches deep veins in large asteroids
+        ///
+        /// You can extend this to 40f, 60f, 100f etc. for very large asteroids.
+        /// Each additional depth adds one voxel read per laser shot — negligible cost.
+        /// The scan stops at the first non-Stone ore found and returns that material.
+        ///
+        /// If all depths return Stone, the asteroid has no detectable ore along that ray.
+        /// Try shooting a different surface point — ore veins are not evenly distributed.
+        /// </summary>
+        /// <summary>
+        /// Keyboard key for the full asteroid deep-scan (all ores, async).
+        /// Uses VRage.Input.MyKeys enum name as a string.
+        /// Default "Y" (next to T which is the laser ping key).
+        /// Other suggestions: "U", "H", "Numpad0".
+        /// Warning: avoid keys already used by SE (G=jetpack, R=reload, F=use, etc.)
+        /// </summary>
+        public string FullScanKey { get; set; } = "Y";
+
+        public float[] VoxelPenetrationDepths { get; set; } = { 0.5f, 1f, 2f, 5f, 10f, 20f, 40f };
 
         // ===================================================================
         // PHYSICS

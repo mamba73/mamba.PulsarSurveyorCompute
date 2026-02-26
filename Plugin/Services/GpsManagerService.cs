@@ -178,6 +178,29 @@ namespace Plugin.Services
             MyAPIGateway.Session.GPS.AddLocalGps(gps);
         }
 
+        /// <summary>
+        /// Creates or replaces a GPS marker for a deep-scanned asteroid.
+        /// One marker per asteroid (matched by name). Updates label if ores change.
+        /// </summary>
+        public void CreateDeepScanGps(string asteroidName, Vector3D center, string oreList)
+        {
+            var player = MyAPIGateway.Session.Player;
+            if (player == null) return;
+
+            // Remove existing marker for this asteroid (name-based dedup)
+            string labelPrefix = $"[Deep] {asteroidName}";
+            var existing = new List<IMyGps>();
+            MyAPIGateway.Session.GPS.GetGpsList(player.IdentityId, existing);
+            foreach (var g in existing)
+                if (g.Name.StartsWith(labelPrefix))
+                    MyAPIGateway.Session.GPS.RemoveLocalGps(g);
+
+            string label = $"{labelPrefix} ({oreList})";
+            var gps = MyAPIGateway.Session.GPS.Create(label, $"Deep scan ores: {oreList}", center, true);
+            gps.GPSColor = new Color(255, 165, 0); // orange — distinct from quick-scan yellow
+            MyAPIGateway.Session.GPS.AddLocalGps(gps);
+        }
+
         // -----------------------------------------------------------------------
         // SCAN ENGINE
         // -----------------------------------------------------------------------

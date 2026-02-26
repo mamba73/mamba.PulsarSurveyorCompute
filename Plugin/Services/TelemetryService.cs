@@ -74,9 +74,10 @@ namespace Plugin.Services
             if (_planetCacheAge > PLANET_LIST_REFRESH)
                 RebuildPlanetCache();
 
-            // Only recompute approach every PlanetRefreshTicks
+            // Only recompute approach every PlanetRefreshTicks (when refresh is enabled)
             _refreshCounter++;
-            if (_refreshCounter < _configService.Data.PlanetRefreshTicks)
+            if (_configService.Data.PlanetRefreshEnabled &&
+                _refreshCounter < _configService.Data.PlanetRefreshTicks)
             {
                 // Between refreshes: update gravity/sustainability with live data
                 // (ship mass or thrust may have changed) but keep cached planet selection
