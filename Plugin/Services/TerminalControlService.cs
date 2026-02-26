@@ -175,7 +175,7 @@ namespace Plugin.Services
 
             // --- 0: Version label ---
             var versionLabel = MyAPIGateway.TerminalControls.CreateControl<IMyTerminalControlLabel, IMyOreDetector>("PulsarVersionLabel");
-            versionLabel.Label              = MyStringId.GetOrCompute($"─── Surveyor Compute v{PLUGIN_VERSION} ───");
+            versionLabel.Label              = MyStringId.GetOrCompute($"─── Pulsar Surveyor Compute v{PLUGIN_VERSION} ───");
             versionLabel.SupportsMultipleBlocks = false;
             controls.Add(versionLabel);
 

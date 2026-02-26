@@ -26,7 +26,6 @@ namespace Plugin
         public void Init(object gameInstance)
         {
             _configService    = new ConfigService();
-            _configService.Load();
 
             _physics          = new PhysicsService(_configService);
             _gpsManager       = new GpsManagerService(_configService.Data);
@@ -48,7 +47,13 @@ namespace Plugin
 
         public void Update()
         {
-            if (!_initialized || MyAPIGateway.Session == null) return;
+            if (!_initialized) return;
+
+            // Load config on first tick with a valid session.
+            // Safe here — MyAPIGateway.Session and Utilities are available.
+            _configService.TryLoadOnce();
+
+            if (MyAPIGateway.Session == null) return;
 
             _terminalControls.Initialize();
 

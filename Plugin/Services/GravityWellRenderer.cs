@@ -3,8 +3,8 @@ using System;
 using System.Collections.Generic;
 using Sandbox.Game.Entities;
 using Sandbox.ModAPI;
-using VRage.Game;
 using VRage.Utils;
+using VRage.Game;  // MyTransparentGeometry
 using VRageMath;
 
 namespace Plugin.Services
