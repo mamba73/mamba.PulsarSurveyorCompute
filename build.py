@@ -31,6 +31,7 @@ PROJECT_TARGET_DIR = os.path.join(BASE_TARGET_DIR, PROJECT_NAME)
 XML_SOURCE   = f"{PROJECT_NAME}.xml"
 VERSION_FILE = "version.txt"
 README_FILE  = "README.md"
+CONFIG_CS    = os.path.join("Plugin", "Models", "Config.cs")
 
 
 def ensure_xml_exists():
@@ -100,6 +101,38 @@ def update_readme_version(v):
         with open(README_FILE, "w", encoding="utf-8") as f:
             f.write(updated)
         print(f"[OK] README.md version updated to {v}.")
+
+
+def update_config_version(v):
+    """
+    Updates the PluginVersion default value in Plugin/Models/Config.cs.
+
+    Matches the line:
+        public string PluginVersion { get; set; } = "X.X.X";
+
+    Called BEFORE building so that the compiled binary and deployed source
+    both contain the correct version string. Also called during rollback to
+    keep Config.cs in sync with version.txt on build failure.
+    """
+    if not os.path.exists(CONFIG_CS):
+        print(f"[WARN] {CONFIG_CS} not found — skipping Config.cs version update.")
+        return
+
+    with open(CONFIG_CS, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    updated = re.sub(
+        r'(public string PluginVersion \{ get; set; \} = ")[^"]+(")',
+        lambda m: f'{m.group(1)}{v}{m.group(2)}',
+        content
+    )
+
+    if updated == content:
+        print(f"[WARN] PluginVersion pattern not found in {CONFIG_CS} — check field exists.")
+    else:
+        with open(CONFIG_CS, "w", encoding="utf-8") as f:
+            f.write(updated)
+        print(f"[OK] Config.cs PluginVersion → {v}")
 
 
 def run_build(v):
@@ -179,18 +212,22 @@ if __name__ == "__main__":
     ensure_xml_exists()
     ver = get_version()
 
+    # Update version in source BEFORE building — compiled binary and deployed
+    # source will both contain the correct version string.
+    update_config_version(ver)
+
     if run_build(ver):
-        update_readme_version(ver)  # Auto-update README on every successful build
+        update_readme_version(ver)
         deploy(ver)
         print(f"\n>>> Build & Deploy complete: v{ver} @ {datetime.now().strftime('%H:%M:%S')}")
     else:
         print(f"\n[!] Build FAILED — deployment skipped. Version file rolled back.")
-        # Roll back version increment so the next successful build gets the same number
         try:
             parts = ver.split(".")
-            parts[-1] = str(int(parts[-1]) - 1)
+            rolled = ".".join(parts[:-1] + [str(int(parts[-1]) - 1)])
             with open(VERSION_FILE, "w") as f:
-                f.write(".".join(parts))
-            print(f"[INFO] Version rolled back to {'.'.join(parts)}.")
+                f.write(rolled)
+            update_config_version(rolled)  # keep Config.cs in sync with version.txt
+            print(f"[INFO] Version rolled back to {rolled}.")
         except Exception:
             pass
