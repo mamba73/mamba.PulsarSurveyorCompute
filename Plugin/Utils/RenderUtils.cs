@@ -39,7 +39,8 @@ namespace Plugin.Utils
             double length,
             Color color,
             float baseAlpha,
-            float scale,
+            double halfWidth,
+            double halfHeight,
             string materialName,
             float thickness,
             float ringSpacing)
@@ -53,20 +54,25 @@ namespace Plugin.Utils
                 velocity = Vector3D.Normalize(velocity);
 
             // ---------------------------------------------------------------
-            // COMPUTE RING BASIS VECTORS — perpendicular to velocity
+            // COMPUTE RING BASIS VECTORS — ship-relative, perpendicular to velocity
             //
-            // We need two vectors (ringUp, ringRight) that together define the
-            // plane of each ring, which must face the travel direction.
+            // We use the ship's own Up vector (WorldMatrix.Up) as the orientation
+            // reference so the tunnel rectangle ROTATES WITH THE SHIP when it rolls.
             //
-            // Cross product method:
-            //   1. Pick a world reference "up" (Y axis)
-            //   2. If velocity is nearly parallel to Y, fall back to Z axis
-            //   3. ringRight = normalize(velocity × refUp)
-            //   4. ringUp    = normalize(ringRight × velocity)
+            // If ship Up is nearly parallel to velocity (e.g. flying straight up/down
+            // from the ship's perspective), fall back to ship Right.
+            //
+            // Gram-Schmidt projection onto the velocity-perpendicular plane:
+            //   1. Start with ship.WorldMatrix.Up as reference
+            //   2. ringRight = normalize(velocity × shipUp)  — perpendicular to both
+            //   3. ringUp    = normalize(ringRight × velocity) — completes the basis
             // ---------------------------------------------------------------
-            Vector3D refUp = Vector3D.UnitY;
-            if (Math.Abs(Vector3D.Dot(velocity, refUp)) > 0.99)
-                refUp = Vector3D.UnitZ; // fallback when flying straight up/down
+            Vector3D shipUp    = ship.WorldMatrix.Up;
+            Vector3D shipRight = ship.WorldMatrix.Right;
+
+            // If shipUp is nearly parallel to velocity, use shipRight as reference
+            Vector3D refUp = (Math.Abs(Vector3D.Dot(velocity, shipUp)) < 0.99)
+                ? shipUp : shipRight;
 
             Vector3D ringRight = Vector3D.Normalize(Vector3D.Cross(velocity, refUp));
             Vector3D ringUp    = Vector3D.Normalize(Vector3D.Cross(ringRight, velocity));
@@ -95,7 +101,7 @@ namespace Plugin.Utils
                 Vector4 renderColor = color.ToVector4();
                 renderColor.W = alpha;
 
-                DrawFrame(center, ringUp, ringRight, renderColor, scale, matId, thickness);
+                DrawFrame(center, ringUp, ringRight, renderColor, (float)halfWidth, (float)halfHeight, matId, thickness);
             }
         }
 
@@ -109,12 +115,13 @@ namespace Plugin.Utils
             Vector3D ringUp,
             Vector3D ringRight,
             Vector4 color,
-            float scale,
+            float halfWidth,
+            float halfHeight,
             MyStringId matId,
             float thickness)
         {
-            Vector3D up   = ringUp    * scale;
-            Vector3D left = ringRight * scale;
+            Vector3D up   = ringUp    * halfHeight;
+            Vector3D left = ringRight * halfWidth;
 
             Vector3D tl = center + up + left;
             Vector3D tr = center + up - left;

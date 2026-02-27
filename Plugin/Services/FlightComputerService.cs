@@ -32,39 +32,55 @@ namespace Plugin.Services
         ///
         /// Returns true when a collision is imminent — drives AudioService and HUD warning.
         /// </summary>
-        public bool DrawBrakingTunnel(IMyShipController ship)
+        /// <summary>
+        /// Returns distance (m) to nearest obstacle, or -1 if clear.
+        /// HUD uses this for the "Xm to impact" countdown.
+        /// </summary>
+        public double DrawBrakingTunnel(IMyShipController ship)
         {
-            if (ship == null || ship.CubeGrid.IsStatic) return false;
+            if (ship == null || ship.CubeGrid.IsStatic) return -1;
 
             double velocity = ship.GetShipSpeed();
-            if (velocity < _configService.Data.MinSpeedForTunnel) return false;
+            if (velocity < _configService.Data.MinSpeedForTunnel) return -1;
 
             // CS0128 guard: stoppingDistance declared ONCE
             float stoppingDistance = _physics.CalculateStoppingDistance(ship);
-            if (stoppingDistance <= 0) return false;
+            if (stoppingDistance <= 0) return -1;
 
-            bool  hasCollision = _physics.IsCollisionImminent(ship, stoppingDistance);
-            Color tunnelColor  = GetSafetyColor(ship, stoppingDistance);
+            var cfg = _configService.Data;
+
+            // Check for obstacles at orange and red threshold distances.
+            // Thresholds are multiples of stopping distance — configurable.
+            //   OrangeThreshold (default 1.5) = warn at 1.5× stopping distance
+            //   RedThreshold    (default 0.6) = brake-now at 0.6× stopping distance
+            double orangeDist = stoppingDistance * cfg.TunnelOrangeThreshold;
+            double redDist    = stoppingDistance * cfg.TunnelRedThreshold;
+
+            double collisionDist = _physics.NearestObstacleDistance(ship, orangeDist);
+            bool   inOrange      = collisionDist >= 0 && collisionDist <= orangeDist;
+            bool   inRed         = collisionDist >= 0 && collisionDist <= redDist;
+
+            Color tunnelColor = inRed    ? Color.Red
+                              : inOrange ? Color.Orange
+                              :            Color.Green;
+
+            VRageMath.Vector3D halfExt = PhysicsService.GetConnectedHalfExtent(ship.CubeGrid)
+                                        + cfg.CollisionMargin;
 
             RenderUtils.DrawTunnel(
                 ship,
-                stoppingDistance,
+                orangeDist,   // tunnel extends to orange threshold distance
                 tunnelColor,
-                _configService.Data.TunnelTransparency,
-                _configService.Data.TunnelScale,
-                _configService.Data.TunnelMaterial,
-                _configService.Data.TunnelLineThickness,
-                _configService.Data.TunnelRingSpacing   // new: animated ring spacing
+                cfg.TunnelTransparency,
+                halfExt.X,
+                halfExt.Y,
+                cfg.TunnelMaterial,
+                cfg.TunnelLineThickness,
+                cfg.TunnelRingSpacing
             );
 
-            return hasCollision;
+            return collisionDist; // -1 = clear, positive = meters to obstacle
         }
 
-        private Color GetSafetyColor(IMyShipController ship, double fullStopDist)
-        {
-            if (_physics.IsCollisionImminent(ship, fullStopDist * 0.5)) return Color.Red;
-            if (_physics.IsCollisionImminent(ship, fullStopDist))       return Color.Orange;
-            return Color.Green;
-        }
     }
 }

@@ -139,11 +139,14 @@ namespace Plugin.Services
             float gravityWellKm, bool hasAtmosphere, float oxygenLevel, string faunaInfo)
         {
             bool   hasFauna = !string.IsNullOrEmpty(faunaInfo) && faunaInfo != "None";
-            string label    = $"#{name} (R:{radiusKm:F0}k) (G:{gravity:F2}) (GW:{gravityWellKm:F0}k){(hasFauna ? " (F+)" : "")}";
-            string desc     = $"Radius: {radiusKm:F0} km | GW: {gravityWellKm:F0} km\n"
-                            + $"Surface Gravity: {gravity:F2} G\n"
-                            + $"Atmosphere: {(hasAtmosphere ? $"Yes (O2:{oxygenLevel:F2})" : "None")}\n"
-                            + $"Fauna: {(hasFauna ? faunaInfo : "None detected")}";
+
+            // GPS name must NOT contain ':' — SE uses ':' as GPS field delimiter.
+            // Format: #P-Name [R60k][G1.10][GW120k][F+]
+            string label    = $"#P-{name} [R{radiusKm:F0}k][G{gravity:F2}][GW{gravityWellKm:F0}k]{(hasFauna ? "[F+]" : "")}";
+            string desc     = $"Radius: {radiusKm:F0} km | GW: {gravityWellKm:F0} km"
+                            + $"\nSurface Gravity: {gravity:F2} G"
+                            + $"\nAtmosphere: {(hasAtmosphere ? $"Yes (O2={oxygenLevel:F2})" : "None")}"
+                            + $"\nFauna: {(hasFauna ? faunaInfo : "None detected")}";
 
             var existing = new List<IMyGps>();
             MyAPIGateway.Session.GPS.GetGpsList(MyAPIGateway.Session.Player.IdentityId, existing);
@@ -167,7 +170,8 @@ namespace Plugin.Services
             var controlledSc = player?.Controller?.ControlledEntity as IMyShipController;
             if (controlledSc != null && controlledSc.CubeGrid.EntityId == gridEntityId) return;
 
-            string label = $"[Grid] {name} ({size})";
+            // GPS name must NOT contain ':'
+            string label = $"#G-{name} [{size}]";
             var existing = new List<IMyGps>();
             MyAPIGateway.Session.GPS.GetGpsList(player?.IdentityId ?? 0, existing);
             foreach (var g in existing)
@@ -188,14 +192,15 @@ namespace Plugin.Services
             if (player == null) return;
 
             // Remove existing marker for this asteroid (name-based dedup)
-            string labelPrefix = $"[Deep] {asteroidName}";
+            string labelPrefix = $"#D-{asteroidName}";
             var existing = new List<IMyGps>();
             MyAPIGateway.Session.GPS.GetGpsList(player.IdentityId, existing);
             foreach (var g in existing)
                 if (g.Name.StartsWith(labelPrefix))
                     MyAPIGateway.Session.GPS.RemoveLocalGps(g);
 
-            string label = $"{labelPrefix} ({oreList})";
+            // GPS name must NOT contain ':'
+            string label = $"{labelPrefix} [{oreList}]";
             var gps = MyAPIGateway.Session.GPS.Create(label, $"Deep scan ores: {oreList}", center, true);
             gps.GPSColor = new Color(255, 165, 0); // orange — distinct from quick-scan yellow
             MyAPIGateway.Session.GPS.AddLocalGps(gps);
@@ -368,7 +373,8 @@ namespace Plugin.Services
             if (marker.Gps != null)
                 MyAPIGateway.Session.GPS.RemoveLocalGps(marker.Gps);
 
-            string label = $"[Pulsar] {marker.Title} ({marker.OreName})";
+            // GPS name must NOT contain ':'
+            string label = $"#O-{marker.Title} [{marker.OreName}]";
             var gps = MyAPIGateway.Session.GPS.Create(label, "Pulsar Ore Survey", marker.Position, true);
             gps.GPSColor = Color.Yellow;
             MyAPIGateway.Session.GPS.AddLocalGps(gps);

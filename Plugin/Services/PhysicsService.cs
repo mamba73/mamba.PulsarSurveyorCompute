@@ -1,9 +1,9 @@
 // Plugin/Services/PhysicsService.cs
+using System;
 using System.Collections.Generic;
 using Sandbox.ModAPI;
 using Sandbox.Game.Entities;
 using VRage.Game.ModAPI;
-using VRage.Game.Entity;
 using VRageMath;
 
 namespace Plugin.Services
@@ -17,38 +17,18 @@ namespace Plugin.Services
             _config = config;
         }
 
+        // -----------------------------------------------------------------------
+        // BRAKING THRUST
+        // -----------------------------------------------------------------------
+
         /// <summary>
-        /// Calculates available braking thrust by summing working thruster blocks
-        /// whose force OPPOSES the current velocity direction.
-        ///
-        /// SE THRUSTER CONVENTION:
-        ///   In Space Engineers, thruster.WorldMatrix.Forward is the direction of
-        ///   THRUST FORCE (the direction the ship is pushed), NOT the exhaust direction.
-        ///   Example: rear thruster pushes ship FORWARD → WorldMatrix.Forward = ship.Forward.
-        ///
-        /// BRAKING LOGIC:
-        ///   Braking force = thrust that opposes velocity.
-        ///   If velocity = Forward, braking thrusters are those with Forward ≈ -velocity.
-        ///   Dot product: contribution = dot(thruster.Forward, -velocityDir)
-        ///   Positive contribution → thruster helps slow down.
-        ///
-        /// WHY PREVIOUS VERSION WAS WRONG:
-        ///   Old code: dot(thruster.Forward, +velocityDir) > 0 → summed ACCELERATING thrusters.
-        ///   This gave wrong stopping distance AND caused backward movement to always appear red
-        ///   (forward thrusters were counted as "braking" backward motion).
-        ///
-        /// FALLBACK: Config.DefaultThrustForce when no braking thrusters are found.
+        /// Sums thrust from blocks whose force direction OPPOSES the current velocity.
+        /// SE thruster WorldMatrix.Forward = direction of thrust force (not exhaust).
+        /// Positive dot(thruster.Forward, -velocityDir) means the thruster helps brake.
         /// </summary>
-        public float CalculateLiveThrustForce(IMyShipController ship)
+        public float CalculateMaxDeceleration(IMyShipController ship)
         {
-            if (ship == null) return _config.Data.DefaultThrustForce;
-
-            var thrusters = new List<IMyTerminalBlock>();
-            MyAPIGateway.TerminalActionsHelper
-                .GetTerminalSystemForGrid(ship.CubeGrid)
-                .GetBlocksOfType<IMyThrust>(thrusters);
-
-            if (thrusters.Count == 0) return _config.Data.DefaultThrustForce;
+            if (ship == null) return 0f;
 
             Vector3D velocityDir = ship.GetShipVelocities().LinearVelocity;
             if (velocityDir.LengthSquared() < 0.01)
@@ -56,103 +36,189 @@ namespace Plugin.Services
             else
                 velocityDir = Vector3D.Normalize(velocityDir);
 
-            // Braking direction is OPPOSITE to velocity
             Vector3D brakeDir = -velocityDir;
 
+            float totalMass   = GetTotalMass(ship);
             float brakingThrust = 0f;
-            foreach (var block in thrusters)
+
+            var blocks = new List<IMySlimBlock>();
+            ship.CubeGrid.GetBlocks(blocks, b => b.FatBlock is IMyThrust);
+
+            foreach (var slim in blocks)
             {
-                var thruster = block as IMyThrust;
+                var thruster = slim.FatBlock as IMyThrust;
                 if (thruster == null || !thruster.IsWorking) continue;
 
-                // FIX: dot against brakeDir (opposite to velocity), not velocityDir
-                // Positive result = this thruster pushes against our motion = braking
                 double contribution = Vector3D.Dot(thruster.WorldMatrix.Forward, brakeDir);
-                if (contribution > 0)
-                    brakingThrust += thruster.MaxEffectiveThrust * (float)contribution;
+                if (contribution > 0.01)
+                    brakingThrust += thruster.MaxEffectiveThrust;
             }
 
-            return brakingThrust > 0 ? brakingThrust : _config.Data.DefaultThrustForce;
+            if (totalMass < 1f || brakingThrust < 1f) return 0f;
+            return brakingThrust / totalMass;
         }
 
-        /// <summary>
-        /// Returns total ship mass in kg — matches the value shown in the SE HUD.
-        ///
-        /// WHY NOT entity.Physics.Mass:
-        ///   Physics.Mass can return structural mass only (without cargo/inventory).
-        ///   CalculateShipMass() includes everything: structure, cargo, fuel, players.
-        ///   This matches what the SE native HUD displays.
-        /// </summary>
-        public float GetTotalMass(IMyShipController ship)
-        {
-            if (ship == null) return 0f;
-            // CalculateShipMass returns the full mass including cargo/inventory
-            var massInfo = ship.CalculateShipMass();
-            return massInfo.TotalMass;
-        }
-
-        /// <summary>Max deceleration (m/s²) = live braking force / total mass.</summary>
-        public float CalculateMaxDeceleration(IMyShipController ship)
-        {
-            if (ship == null || ship.CubeGrid == null) return 0f;
-            float mass   = GetTotalMass(ship);
-            float thrust = CalculateLiveThrustForce(ship);
-            return mass > 0 ? thrust / mass : 0f;
-        }
-
-        /// <summary>Minimum stopping distance: s = v² / (2a).</summary>
         public float CalculateStoppingDistance(IMyShipController ship)
         {
             if (ship == null) return 0f;
+            float maxDecel = CalculateMaxDeceleration(ship);
+            if (maxDecel < 0.01f) return 0f;
             double velocity = ship.GetShipSpeed();
-            float maxDecel  = CalculateMaxDeceleration(ship);
-            if (maxDecel <= 0) return 0f;
             return (float)((velocity * velocity) / (2.0 * maxDecel));
         }
 
+        // -----------------------------------------------------------------------
+        // COLLISION DETECTION
+        // -----------------------------------------------------------------------
+
         /// <summary>
-        /// Returns true if there is a solid obstacle within 'distance' meters along the velocity vector.
-        /// Fallback to forward vector if nearly stationary.
+        /// Returns the distance (m) to the nearest obstacle within 'maxDistance' meters
+        /// along the velocity vector, or -1 if no obstacle found.
+        ///
+        /// MULTIPLE RAYS (5):
+        ///   Center ray + 4 corner rays offset by ship's real half-extents.
+        ///   Ship half-extents come from the combined bounding box of all connected
+        ///   subgrids (pistons, rotors, connectors, magnetic plates).
+        ///   Offsets use ship WorldMatrix.Up and Right — they rotate with the ship.
+        ///
+        /// OWN-GRID FILTERING:
+        ///   GridGroups.GetGroup(GridLinkTypeEnum.Physical) returns all mechanically
+        ///   linked grids. Hits on any of those grids are ignored.
+        ///   Voxels and foreign grids are always treated as real obstacles.
+        ///
+        /// BACKWARD FLIGHT:
+        ///   Rays follow velocity direction — correct for any flight direction.
+        ///
+        /// RETURNS: meters to nearest valid hit, or -1 if clear.
         /// </summary>
-        public bool IsCollisionImminent(IMyShipController ship, double distance)
+        public double NearestObstacleDistance(IMyShipController ship, double maxDistance)
         {
-            if (ship == null || distance <= 0) return false;
+            if (ship == null || maxDistance <= 0) return -1;
 
             Vector3D velocity = ship.GetShipVelocities().LinearVelocity;
-            if (velocity.LengthSquared() < 1) return false;
+            if (velocity.LengthSquared() < 1.0) return -1;
 
-            Vector3D start     = ship.WorldMatrix.Translation;
-            Vector3D direction = Vector3D.Normalize(velocity);
-            Vector3D end       = start + direction * distance;
+            Vector3D velDir = Vector3D.Normalize(velocity);
+            Vector3D origin = ship.CubeGrid.WorldAABB.Center;
 
-            IHitInfo hit;
-            return MyAPIGateway.Physics.CastRay(start, end, out hit);
+            var ownIds = GetConnectedGridIds(ship.CubeGrid);
+
+            // Use ship orientation for corner offsets (rotates with ship)
+            Vector3D halfExtent = GetConnectedHalfExtent(ship.CubeGrid) + _config.Data.CollisionMargin;
+            Vector3D shipRight  = ship.WorldMatrix.Right;
+            Vector3D shipUp     = ship.WorldMatrix.Up;
+
+            // Project ship axes perpendicular to velocity
+            Vector3D axisRight = shipRight - Vector3D.Dot(shipRight, velDir) * velDir;
+            Vector3D axisUp    = shipUp    - Vector3D.Dot(shipUp,    velDir) * velDir;
+            if (axisRight.LengthSquared() > 0.001) axisRight = Vector3D.Normalize(axisRight);
+            if (axisUp.LengthSquared()    > 0.001) axisUp    = Vector3D.Normalize(axisUp);
+
+            double hw = halfExtent.X;  // right extent
+            double hh = halfExtent.Y;  // up extent
+
+            // 5 rays: center + 4 corners — same pattern as tunnel ring corners
+            var offsets = new[]
+            {
+                Vector3D.Zero,
+                 axisUp * hh + axisRight * hw,
+                 axisUp * hh - axisRight * hw,
+                -axisUp * hh + axisRight * hw,
+                -axisUp * hh - axisRight * hw,
+            };
+
+            double nearest = -1;
+
+            foreach (var offset in offsets)
+            {
+                Vector3D rayStart = origin + offset;
+                Vector3D rayEnd   = rayStart + velDir * maxDistance;
+
+                IHitInfo hit;
+                if (!MyAPIGateway.Physics.CastRay(rayStart, rayEnd, out hit)) continue;
+
+                var hitGrid = hit.HitEntity?.GetTopMostParent() as IMyCubeGrid;
+                bool isOwn  = hitGrid != null && ownIds.Contains(hitGrid.EntityId);
+                if (isOwn) continue;
+
+                double dist = Vector3D.Distance(origin + offset, hit.Position);
+                if (nearest < 0 || dist < nearest)
+                    nearest = dist;
+            }
+
+            return nearest;
+        }
+
+        /// <summary>Convenience bool wrapper used by older callers.</summary>
+        public bool IsCollisionImminent(IMyShipController ship, double distance)
+            => NearestObstacleDistance(ship, distance) >= 0;
+
+        // -----------------------------------------------------------------------
+        // GRID SIZE / CONNECTED SUBGRIDS
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Returns entity IDs of the ship's main grid plus all mechanically
+        /// connected subgrids (pistons, rotors, connectors, landing gear).
+        /// </summary>
+        public static HashSet<long> GetConnectedGridIds(IMyCubeGrid root)
+        {
+            var ids = new HashSet<long>();
+            var grids = new List<IMyCubeGrid>();
+            MyAPIGateway.GridGroups.GetGroup(root, GridLinkTypeEnum.Physical, grids);
+            foreach (var g in grids) ids.Add(g.EntityId);
+            return ids;
         }
 
         /// <summary>
-        /// Laser rangefinder raycast along the ship's forward axis.
-        /// Range from Config.LaserMaxRange — not hardcoded.
-        /// Offset 5m forward to clear own collision mesh.
-        /// Returns distance to hit, or -1 if clear.
+        /// Returns the combined half-extents of the root grid and all connected
+        /// subgrids, expressed in world space. Used to scale collision ray offsets.
         /// </summary>
-        public double RaycastDistance(IMyShipController ship)
+        public static Vector3D GetConnectedHalfExtent(IMyCubeGrid root)
         {
-            if (ship == null) return -1;
-            double maxRange = _config.Data.LaserMaxRange;
-            Vector3D start  = ship.WorldMatrix.Translation + ship.WorldMatrix.Forward * 5.0;
-            Vector3D end    = start + ship.WorldMatrix.Forward * maxRange;
-            IHitInfo hit;
-            if (MyAPIGateway.Physics.CastRay(start, end, out hit))
-                return Vector3D.Distance(start, hit.Position);
-            return -1;
+            var grids = new List<IMyCubeGrid>();
+            MyAPIGateway.GridGroups.GetGroup(root, GridLinkTypeEnum.Physical, grids);
+
+            BoundingBoxD combinedAabb = BoundingBoxD.CreateInvalid();
+            foreach (var g in grids)
+                combinedAabb = combinedAabb.Include(g.WorldAABB);
+
+            return combinedAabb.HalfExtents;
         }
 
-        public double GetDistanceToSurface(IMyShipController ship, MyPlanet planet)
+        // -----------------------------------------------------------------------
+        // MASS
+        // -----------------------------------------------------------------------
+
+        public float GetTotalMass(IMyShipController ship)
         {
-            if (planet == null || ship == null) return -1;
-            Vector3D pos     = ship.GetPosition();
-            Vector3D surface = planet.GetClosestSurfacePointGlobal(ref pos);
-            return Vector3D.Distance(pos, surface);
+            if (ship == null) return 0f;
+            var grids = new List<IMyCubeGrid>();
+            MyAPIGateway.GridGroups.GetGroup(ship.CubeGrid, GridLinkTypeEnum.Physical, grids);
+            float total = 0f;
+            foreach (var g in grids)
+                total += (g as MyCubeGrid)?.GetCurrentMass() ?? 0f;
+            return total > 0f ? total : ship.CalculateShipMass().TotalMass;
+        }
+
+        // -----------------------------------------------------------------------
+        // LASER RANGEFINDER (unchanged)
+        // -----------------------------------------------------------------------
+
+        public bool CastLaserRay(IMyShipController ship, double maxRange, out IHitInfo hit, out double range)
+        {
+            hit   = null;
+            range = -1;
+
+            Vector3D start = ship.WorldMatrix.Translation + ship.WorldMatrix.Forward * 5.0;
+            Vector3D end   = start + ship.WorldMatrix.Forward * maxRange;
+
+            if (MyAPIGateway.Physics.CastRay(start, end, out hit))
+            {
+                range = Vector3D.Distance(start, hit.Position);
+                return true;
+            }
+            return false;
         }
     }
 }
