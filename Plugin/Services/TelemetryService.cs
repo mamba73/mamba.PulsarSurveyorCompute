@@ -25,7 +25,7 @@ namespace Plugin.Services
 
         // Planet cache — rebuilt every PlanetRefreshTicks
         private static List<MyPlanet> _planetCache = new List<MyPlanet>();
-        private static int _planetCacheAge = int.MaxValue; // force first-tick refresh
+        private static int _planetCacheAge = PLANET_LIST_REFRESH + 1; // force rebuild on first tick (int.MaxValue would overflow)
         private const int PLANET_LIST_REFRESH = 18000;    // rebuild planet list every 5 min
 
         public TelemetryService(ConfigService configService)
@@ -76,18 +76,23 @@ namespace Plugin.Services
 
             // Only recompute approach every PlanetRefreshTicks (when refresh is enabled)
             _refreshCounter++;
-            if (_configService.Data.PlanetRefreshEnabled &&
-                _refreshCounter < _configService.Data.PlanetRefreshTicks)
+
+            // Always recompute if we have no data yet (handles startup and world load)
+            bool needsFullRecompute = CurrentApproach == null && _planetCache.Count == 0;
+
+            if (!needsFullRecompute
+                && _configService.Data.PlanetRefreshEnabled
+                && _refreshCounter < _configService.Data.PlanetRefreshTicks)
             {
                 // Between refreshes: update gravity/sustainability with live data
                 // (ship mass or thrust may have changed) but keep cached planet selection
                 if (CurrentApproach != null)
                 {
                     float gravAccel = (float)(ship.GetNaturalGravity().Length());
-                    CurrentApproach.GravityAccel   = gravAccel;
+                    CurrentApproach.GravityAccel    = gravAccel;
                     CurrentApproach.CanEscapeGravity = liveMaxDecel > gravAccel;
-                    CurrentApproach.LiveMaxDecel   = liveMaxDecel;
-                    CurrentApproach.GravityG       = GetGravityG(ship);
+                    CurrentApproach.LiveMaxDecel     = liveMaxDecel;
+                    CurrentApproach.GravityG         = GetGravityG(ship);
                 }
                 return CurrentApproach != null;
             }

@@ -14,7 +14,7 @@ namespace Plugin.Models
         // ===================================================================
         /// <summary>Plugin version shown in terminal label and startup notification.
         /// This is set by the build system and should not be manually edited.</summary>
-        public string PluginVersion { get; set; } = "1.0.132";
+        public string PluginVersion { get; set; } = "1.0.122";
 
         // ===================================================================
         // TUNNEL
@@ -37,7 +37,7 @@ namespace Plugin.Models
         /// At 100 m/s → 20m. At 500 m/s → 100m. Default 80m works for most speeds.</summary>
         public float  TunnelRingSpacing   { get; set; } = 100f;
         /// <summary>Minimum speed (m/s) to render the braking tunnel.</summary>
-        public float  MinSpeedForTunnel   { get; set; } = 2.0f;
+        public float  MinSpeedForTunnel   { get; set; } = 5.0f;
 
         /// <summary>
         /// Fraction of stopping distance at which tunnel turns ORANGE (caution).
@@ -48,7 +48,7 @@ namespace Plugin.Models
         /// Default 1.5 = warn at 1.5× stopping distance — gives plenty of reaction time.
         /// Set higher (2.0–3.0) for early warning, lower (0.8) for late warning.
         /// </summary>
-        public float  TunnelOrangeThreshold { get; set; } = 2.0f;
+        public float  TunnelOrangeThreshold { get; set; } = 1.5f;
 
         /// <summary>
         /// Fraction of stopping distance at which tunnel turns RED (brake NOW).
@@ -57,7 +57,7 @@ namespace Plugin.Models
         /// At that point you need to brake immediately or you will collide.
         /// Set lower (0.3) if you trust your reaction time, higher (0.8) for safety.
         /// </summary>
-        public float  TunnelRedThreshold    { get; set; } = 0.8f;
+        public float  TunnelRedThreshold    { get; set; } = 0.6f;
 
         // ===================================================================
         // HUD — WHAT TO SHOW
@@ -102,7 +102,7 @@ namespace Plugin.Models
         public bool GravityWellShowCockpit  { get; set; } = true;
         /// <summary>Show gravity well sphere while in external/third-person view.
         /// Disable if external view causes lag (sphere draws many line segments).</summary>
-        public bool GravityWellShowExternal { get; set; } = true;
+        public bool GravityWellShowExternal { get; set; } = false;
 
         /// <summary>Color of the gravity well visualization rings (RGBA, 0–255 each).</summary>
         public SerializableVector4 GravityWellColor { get; set; }
