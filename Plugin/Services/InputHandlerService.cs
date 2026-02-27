@@ -16,24 +16,26 @@ namespace Plugin.Services
     public class InputHandlerService
     {
         private readonly Config                  _config;
+        private readonly ConfigService           _configService;
         private readonly PhysicsService          _physics;
         private readonly GpsManagerService       _gpsManager;
         private readonly AsteroidFullScanService _fullScanner;
 
-        // Cached parsed key for full scan
-        private MyKeys? _fullScanKey;
-        private bool    _fullScanKeyParsed = false;
+        // Config dialog state — prevents re-opening while open
+        private bool _configDialogOpen = false;
 
         public InputHandlerService(
             Config config,
+            ConfigService configService,
             PhysicsService physics,
             GpsManagerService gpsManager,
             AsteroidFullScanService fullScanner)
         {
-            _config      = config;
-            _physics     = physics;
-            _gpsManager  = gpsManager;
-            _fullScanner = fullScanner;
+            _config        = config;
+            _configService = configService;
+            _physics       = physics;
+            _gpsManager    = gpsManager;
+            _fullScanner   = fullScanner;
         }
 
         /// <summary>
@@ -54,6 +56,15 @@ namespace Plugin.Services
         /// </summary>
         public void Update(IMyShipController ship, ref double range)
         {
+            // --- Config dialog: Ctrl+Alt+/ ---
+            if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.OemQuestion)
+                && MyAPIGateway.Input.IsAnyCtrlKeyPressed()
+                && MyAPIGateway.Input.IsAnyAltKeyPressed())
+            {
+                OpenConfigDialog();
+                return;
+            }
+
             if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.T))
             {
                 if (MyAPIGateway.Input.IsAnyShiftKeyPressed())
@@ -66,10 +77,6 @@ namespace Plugin.Services
                 return;
             }
 
-            // Y key = force full asteroid scan (same behaviour as T on an asteroid)
-            MyKeys fullKey = GetFullScanKey();
-            if (fullKey != MyKeys.None && MyAPIGateway.Input.IsNewKeyPressed(fullKey))
-                _fullScanner.TryScan(ship);
         }
 
         // -----------------------------------------------------------------------
@@ -236,21 +243,52 @@ namespace Plugin.Services
         // KEY PARSING
         // -----------------------------------------------------------------------
 
-        private MyKeys GetFullScanKey()
+        /// <summary>
+        /// Shows config file path and current key bindings via SE's mission screen.
+        /// WinForms is not available in Pulsar's Roslyn context.
+        /// Edit config.xml in the shown path to change settings — reload world to apply.
+        ///
+        /// SE ShowMissionScreen signature:
+        ///   ShowMissionScreen(string screenTitle, string currentObjectivePrefix,
+        ///                     string currentObjective, string description,
+        ///                     Action<ResultEnum> callback, string okButtonCaption)
+        /// </summary>
+        private void OpenConfigDialog()
         {
-            if (_fullScanKeyParsed) return _fullScanKey ?? MyKeys.None;
-            _fullScanKeyParsed = true;
+            if (_configDialogOpen) return;
+            _configDialogOpen = true;
 
-            MyKeys parsed;
-            if (Enum.TryParse(_config.FullScanKey, true, out parsed))
-                _fullScanKey = parsed;
-            else
+            try
             {
-                MyLog.Default.WriteLineAndConsole(
-                    $"[Pulsar] Invalid FullScanKey '{_config.FullScanKey}' — falling back to Y.");
-                _fullScanKey = MyKeys.Y;
+                string configPath = System.IO.Path.Combine(
+                    System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
+                    "SpaceEngineers", "Storage", "PulsarSurveyorCompute", "config.xml");
+
+                string msg =
+                    $"Scan Range:        {_config.PulsarScanRange:N0} m\n" +
+                    $"Max Scan Range:    {_config.MaxScanRange:N0} m\n" +
+                    $"Laser Max Range:   {_config.LaserMaxRange:N0} m\n" +
+                    $"Voxel Stride:      {_config.VoxelScanStride}\n" +
+                    $"Planet Refresh:    {(_config.PlanetRefreshEnabled ? "ON" : "OFF")} ({_config.PlanetRefreshTicks} ticks)\n" +
+                    $"Tunnel Spacing:    {_config.TunnelRingSpacing:N0} m\n" +
+                    $"\nTo change settings, edit:\n{configPath}\n\n" +
+                    $"Keys:\n" +
+                    $"  [T]        — Rangefinder / full asteroid scan\n" +
+                    $"  [Shift+T]  — Clear all GPS markers\n" +
+                    $"  [Ctrl+Alt+/] — This screen";
+
+                MyAPIGateway.Utilities.ShowMissionScreen(
+                    "Surveyor Compute Config",
+                    "", "", msg,
+                    r => { _configDialogOpen = false; },
+                    "Close");
             }
-            return _fullScanKey.Value;
+            catch (Exception ex)
+            {
+                MyLog.Default.WriteLineAndConsole($"[Pulsar] ConfigDialog error: {ex.Message}");
+                _configDialogOpen = false;
+            }
         }
+
     }
 }

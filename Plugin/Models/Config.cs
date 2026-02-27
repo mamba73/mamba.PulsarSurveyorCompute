@@ -14,7 +14,7 @@ namespace Plugin.Models
         // ===================================================================
         /// <summary>Plugin version shown in terminal label and startup notification.
         /// This is set by the build system and should not be manually edited.</summary>
-        public string PluginVersion { get; set; } = "1.0.128";
+        public string PluginVersion { get; set; } = "1.0.130";
 
         // ===================================================================
         // TUNNEL
@@ -29,6 +29,9 @@ namespace Plugin.Models
         /// 0.08–0.15 = subtle/virtual. 0.3+ = very visible.</summary>
         public float  TunnelTransparency  { get; set; } = 0.10f;
         /// <summary>Half-size (m) of each tunnel ring cross-section.</summary>
+        /// <summary>DEPRECATED — tunnel now scales to actual ship bounding box.
+        /// Kept for XML compatibility, no longer used by renderer.</summary>
+        [System.Xml.Serialization.XmlIgnore]
         public float  TunnelScale         { get; set; } = 15f;
         /// <summary>Distance (m) between tunnel rings. Rule: ~cruise_speed / 5.
         /// At 100 m/s → 20m. At 500 m/s → 100m. Default 80m works for most speeds.</summary>
@@ -103,6 +106,10 @@ namespace Plugin.Models
         /// <summary>Default scan radius (m) for the sector ore scan.
         /// Also the initial slider value shown in the Ore Detector terminal.</summary>
         public float  PulsarScanRange  { get; set; } = 2500f;
+
+        /// <summary>Extra clearance (meters) added to ship half-extents for collision rays.
+        /// Accounts for maneuvering space. Default 4m.</summary>
+        public float  CollisionMargin  { get; set; } = 4f;
 
         /// <summary>Maximum value of the scan range slider in the terminal UI.</summary>
         public float  MaxScanRange     { get; set; } = 25000f;

@@ -39,7 +39,8 @@ namespace Plugin.Utils
             double length,
             Color color,
             float baseAlpha,
-            float scale,
+            double halfWidth,
+            double halfHeight,
             string materialName,
             float thickness,
             float ringSpacing)
@@ -95,7 +96,7 @@ namespace Plugin.Utils
                 Vector4 renderColor = color.ToVector4();
                 renderColor.W = alpha;
 
-                DrawFrame(center, ringUp, ringRight, renderColor, scale, matId, thickness);
+                DrawFrame(center, ringUp, ringRight, renderColor, (float)halfWidth, (float)halfHeight, matId, thickness);
             }
         }
 
@@ -109,12 +110,13 @@ namespace Plugin.Utils
             Vector3D ringUp,
             Vector3D ringRight,
             Vector4 color,
-            float scale,
+            float halfWidth,
+            float halfHeight,
             MyStringId matId,
             float thickness)
         {
-            Vector3D up   = ringUp    * scale;
-            Vector3D left = ringRight * scale;
+            Vector3D up   = ringUp    * halfHeight;
+            Vector3D left = ringRight * halfWidth;
 
             Vector3D tl = center + up + left;
             Vector3D tr = center + up - left;

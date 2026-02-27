@@ -96,13 +96,27 @@ namespace Plugin.Services
         private void OnGetControls(IMyTerminalBlock block, List<IMyTerminalControl> controls)
         {
             if (!(block is IMyOreDetector)) return;
-            if (_controls == null) return;
+
+            // DEBUG — written to SpaceEngineers.Log every time terminal panel opens
+            MyLog.Default.WriteLineAndConsole(
+                $"[PSC] OnGetControls: block={block.CustomName} " +
+                $"_controls={(  _controls == null ? "NULL" : _controls.Count + " items")} " +
+                $"_hookRegistered={_hookRegistered} " +
+                $"alreadyInjected={controls.Exists(c => c.Id == "PSC_Label")}");
+
+            if (_controls == null)
+            {
+                MyLog.Default.WriteLineAndConsole("[PSC] WARN: _controls is null — BuildControlList was not called. Rebuilding now.");
+                _controls = BuildControlList();
+            }
 
             // Duplicate guard: check if our first control is already in the list
             if (controls.Exists(c => c.Id == "PSC_Label")) return;
 
             foreach (var ctrl in _controls)
                 controls.Add(ctrl);
+
+            MyLog.Default.WriteLineAndConsole($"[PSC] Injected {_controls.Count} controls into Ore Detector panel.");
         }
 
         // -----------------------------------------------------------------------

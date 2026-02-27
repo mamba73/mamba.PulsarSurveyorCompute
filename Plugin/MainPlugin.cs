@@ -33,7 +33,7 @@ namespace Plugin
             _flightComputer   = new FlightComputerService(_physics, _configService);
             _telemetry        = new TelemetryService(_configService);
             _asteroidScanner  = new AsteroidFullScanService(_gpsManager, _configService);
-            _inputHandler     = new InputHandlerService(_configService.Data, _physics, _gpsManager, _asteroidScanner);
+            _inputHandler     = new InputHandlerService(_configService.Data, _configService, _physics, _gpsManager, _asteroidScanner);
             _hudDisplay       = new HudDisplayService(_configService);
             _audio            = new AudioService();
             _terminalControls = new TerminalControlService(_gpsManager, _configService);

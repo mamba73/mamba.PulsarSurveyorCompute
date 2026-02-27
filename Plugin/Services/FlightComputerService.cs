@@ -46,15 +46,21 @@ namespace Plugin.Services
             bool  hasCollision = _physics.IsCollisionImminent(ship, stoppingDistance);
             Color tunnelColor  = GetSafetyColor(ship, stoppingDistance);
 
+            // Use actual combined grid half-extents + collision margin for ring size.
+            // This ensures rings visually match the swept volume used for collision detection.
+            VRageMath.Vector3D halfExt = PhysicsService.GetConnectedHalfExtent(ship.CubeGrid)
+                                        + _configService.Data.CollisionMargin;
+
             RenderUtils.DrawTunnel(
                 ship,
                 stoppingDistance,
                 tunnelColor,
                 _configService.Data.TunnelTransparency,
-                _configService.Data.TunnelScale,
+                halfExt.X,   // halfWidth  (X = right extent)
+                halfExt.Y,   // halfHeight (Y = up extent)
                 _configService.Data.TunnelMaterial,
                 _configService.Data.TunnelLineThickness,
-                _configService.Data.TunnelRingSpacing   // new: animated ring spacing
+                _configService.Data.TunnelRingSpacing
             );
 
             return hasCollision;
