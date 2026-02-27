@@ -14,7 +14,7 @@ namespace Plugin.Models
         // ===================================================================
         /// <summary>Plugin version shown in terminal label and startup notification.
         /// This is set by the build system and should not be manually edited.</summary>
-        public string PluginVersion { get; set; } = "1.0.122";
+        public string PluginVersion { get; set; } = "1.0.134";
 
         // ===================================================================
         // TUNNEL
