@@ -108,8 +108,27 @@ namespace Plugin.Services
             Vector3D start = ship.WorldMatrix.Translation + ship.WorldMatrix.Forward * 5.0;
             Vector3D end   = start + ship.WorldMatrix.Forward * _config.LaserMaxRange;
 
+            // Raycast — then skip hits on own grid + connected subgrids
+            var ownIds = Plugin.Services.PhysicsService.GetConnectedGridIds(ship.CubeGrid);
+
             IHitInfo hit;
-            if (!MyAPIGateway.Physics.CastRay(start, end, out hit))
+            bool gotHit = MyAPIGateway.Physics.CastRay(start, end, out hit);
+
+            // Re-cast up to 3 times to skip own-grid hits (e.g. cockpit nose)
+            int attempts = 0;
+            while (gotHit && attempts++ < 3)
+            {
+                var skipGrid = hit.HitEntity?.GetTopMostParent() as IMyCubeGrid;
+                if (skipGrid != null && ownIds.Contains(skipGrid.EntityId))
+                {
+                    // Move start past this hit and cast again
+                    Vector3D newStart = hit.Position + ship.WorldMatrix.Forward * 0.5;
+                    gotHit = MyAPIGateway.Physics.CastRay(newStart, end, out hit);
+                }
+                else break;
+            }
+
+            if (!gotHit)
             {
                 MyAPIGateway.Utilities.ShowNotification(
                     "[PSC] No target in range.  (Max: " + (_config.LaserMaxRange / 1000.0).ToString("F0") + " km)",

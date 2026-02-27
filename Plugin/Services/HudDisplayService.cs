@@ -44,6 +44,7 @@ namespace Plugin.Services
             IMyShipController ship,
             float mass, float maxDecel, double altitude,
             double range, float gravityG, bool isWarning,
+            double collisionDist,
             PlanetApproachInfo approach)
         {
             // Ship null = not in cockpit → hide everything
@@ -79,7 +80,7 @@ namespace Plugin.Services
             if (_cockpitSurface != null)
             {
                 _sb.Clear();
-                BuildLcdText(mass, maxDecel, altitude, range, gravityG, isWarning, approach, cfg, hudState);
+                BuildLcdText(mass, maxDecel, altitude, range, gravityG, isWarning, collisionDist, approach, cfg, hudState);
 
                 // ContentType must be set every frame — SE resets it on cockpit entry
                 _cockpitSurface.ContentType     = ContentType.TEXT_AND_IMAGE;
@@ -93,7 +94,7 @@ namespace Plugin.Services
 
             // --- SCREEN NOTIFICATION: compact one-liner ---
             // Kept short so scan result popups at the bottom remain visible
-            string status = BuildStatusLine(maxDecel, altitude, gravityG, isWarning, approach, cfg);
+            string status = BuildStatusLine(maxDecel, altitude, gravityG, isWarning, collisionDist, approach, cfg);
             string font   = isWarning ? MyFontEnum.Red.ToString() : MyFontEnum.White.ToString();
 
             if (_hudNote == null)
@@ -111,9 +112,14 @@ namespace Plugin.Services
 
         private void BuildLcdText(
             float mass, float maxDecel, double altitude, double range,
-            float gravityG, bool isWarning, PlanetApproachInfo ap, Config cfg, int hudState)
+            float gravityG, bool isWarning, double collisionDist, PlanetApproachInfo ap, Config cfg, int hudState)
         {
-            if (isWarning)
+            // Collision countdown on LCD
+            if (isWarning && collisionDist >= 0)
+            {
+                _sb.AppendLine($"!! {collisionDist:N0}m TO IMPACT !!");
+            }
+            else if (isWarning)
             {
                 _sb.AppendLine("!!! IMPACT IMMINENT !!!");
                 _sb.AppendLine("!!!   BRAKE NOW      !!!");
@@ -190,11 +196,17 @@ namespace Plugin.Services
 
         private static string BuildStatusLine(
             float maxDecel, double altitude, float gravityG,
-            bool isWarning, PlanetApproachInfo ap, Config cfg)
+            bool isWarning, double collisionDist, PlanetApproachInfo ap, Config cfg)
         {
             var sb = new StringBuilder();
 
-            if (isWarning) sb.Append("!! BRAKE !! ");
+            if (isWarning)
+            {
+                if (collisionDist >= 0)
+                    sb.Append($"!! BRAKE {collisionDist:N0}m !! ");
+                else
+                    sb.Append("!! BRAKE !! ");
+            }
 
             if (cfg.HudShowDecel)   sb.Append($"{maxDecel:F1}m/s\u00B2 ");
             if (cfg.HudShowAlt && altitude >= 0) sb.Append($"Alt:{altitude:N0}m ");

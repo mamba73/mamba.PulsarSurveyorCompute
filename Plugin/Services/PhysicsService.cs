@@ -72,92 +72,86 @@ namespace Plugin.Services
         // -----------------------------------------------------------------------
 
         /// <summary>
-        /// Casts multiple rays in a cross pattern to check for obstacles within
-        /// 'distance' meters along the velocity vector.
+        /// Returns the distance (m) to the nearest obstacle within 'maxDistance' meters
+        /// along the velocity vector, or -1 if no obstacle found.
         ///
-        /// WHY MULTIPLE RAYS:
-        ///   A single center ray misses objects to the sides of the ship.
-        ///   A ship traveling laterally can collide with its flank, not its nose.
-        ///   We cast 5 rays: center + 4 corner offsets based on ship half-extents.
+        /// MULTIPLE RAYS (5):
+        ///   Center ray + 4 corner rays offset by ship's real half-extents.
+        ///   Ship half-extents come from the combined bounding box of all connected
+        ///   subgrids (pistons, rotors, connectors, magnetic plates).
+        ///   Offsets use ship WorldMatrix.Up and Right — they rotate with the ship.
         ///
-        /// GRID FILTERING:
-        ///   Hits on the ship's own grid (or physically connected subgrids) are ignored.
-        ///   This prevents false positives from the ship's own geometry.
-        ///   Also skips hits on grids connected via connectors / landing gear (subgridIds).
-        ///
-        /// CONNECTED SUBGRID RESOLUTION:
-        ///   GetPhysicalConnections() returns all mechanically connected grids.
-        ///   Connector and magnetic plate attachments are included.
-        ///   The hit is valid only if the hit entity is NOT in the connected set.
+        /// OWN-GRID FILTERING:
+        ///   GridGroups.GetGroup(GridLinkTypeEnum.Physical) returns all mechanically
+        ///   linked grids. Hits on any of those grids are ignored.
+        ///   Voxels and foreign grids are always treated as real obstacles.
         ///
         /// BACKWARD FLIGHT:
-        ///   Direction is always along velocity, so backward flight is handled
-        ///   correctly — rays go backward, ship's nose (forward face) is irrelevant.
+        ///   Rays follow velocity direction — correct for any flight direction.
         ///
-        /// MARGIN:
-        ///   Config.CollisionMargin (default 3m) is added to the half-extents as
-        ///   maneuvering clearance.
+        /// RETURNS: meters to nearest valid hit, or -1 if clear.
         /// </summary>
-        public bool IsCollisionImminent(IMyShipController ship, double distance)
+        public double NearestObstacleDistance(IMyShipController ship, double maxDistance)
         {
-            if (ship == null || distance <= 0) return false;
+            if (ship == null || maxDistance <= 0) return -1;
 
             Vector3D velocity = ship.GetShipVelocities().LinearVelocity;
-            if (velocity.LengthSquared() < 1.0) return false; // < 1 m/s — ignore
+            if (velocity.LengthSquared() < 1.0) return -1;
 
             Vector3D velDir = Vector3D.Normalize(velocity);
             Vector3D origin = ship.CubeGrid.WorldAABB.Center;
 
-            // Collect IDs of own grid + all mechanically connected grids
             var ownIds = GetConnectedGridIds(ship.CubeGrid);
 
-            // Half-extents of the combined grid bounding box
+            // Use ship orientation for corner offsets (rotates with ship)
             Vector3D halfExtent = GetConnectedHalfExtent(ship.CubeGrid) + _config.Data.CollisionMargin;
+            Vector3D shipRight  = ship.WorldMatrix.Right;
+            Vector3D shipUp     = ship.WorldMatrix.Up;
 
-            // Build perpendicular axes to velocity for corner offsets
-            Vector3D up    = Vector3D.CalculatePerpendicularVector(velDir);
-            Vector3D right = Vector3D.Cross(velDir, up);
-            up    = Vector3D.Normalize(up);
-            right = Vector3D.Normalize(right);
+            // Project ship axes perpendicular to velocity
+            Vector3D axisRight = shipRight - Vector3D.Dot(shipRight, velDir) * velDir;
+            Vector3D axisUp    = shipUp    - Vector3D.Dot(shipUp,    velDir) * velDir;
+            if (axisRight.LengthSquared() > 0.001) axisRight = Vector3D.Normalize(axisRight);
+            if (axisUp.LengthSquared()    > 0.001) axisUp    = Vector3D.Normalize(axisUp);
 
-            // Half-width and half-height for offset
-            double hw = Math.Max(halfExtent.X, halfExtent.Z);
-            double hh = halfExtent.Y;
+            double hw = halfExtent.X;  // right extent
+            double hh = halfExtent.Y;  // up extent
 
-            // 5 rays: center + 4 corners
+            // 5 rays: center + 4 corners — same pattern as tunnel ring corners
             var offsets = new[]
             {
                 Vector3D.Zero,
-                up * hh + right * hw,
-                up * hh - right * hw,
-               -up * hh + right * hw,
-               -up * hh - right * hw,
+                 axisUp * hh + axisRight * hw,
+                 axisUp * hh - axisRight * hw,
+                -axisUp * hh + axisRight * hw,
+                -axisUp * hh - axisRight * hw,
             };
 
-            Vector3D end = origin + velDir * distance;
+            double nearest = -1;
 
             foreach (var offset in offsets)
             {
                 Vector3D rayStart = origin + offset;
-                Vector3D rayEnd   = end   + offset;
+                Vector3D rayEnd   = rayStart + velDir * maxDistance;
 
                 IHitInfo hit;
                 if (!MyAPIGateway.Physics.CastRay(rayStart, rayEnd, out hit)) continue;
 
-                // Check hit entity is not own grid / subgrid
                 var hitGrid = hit.HitEntity?.GetTopMostParent() as IMyCubeGrid;
-                if (hitGrid == null)
-                {
-                    // Voxel or other non-grid entity — always a real obstacle
-                    return true;
-                }
+                bool isOwn  = hitGrid != null && ownIds.Contains(hitGrid.EntityId);
+                if (isOwn) continue;
 
-                if (!ownIds.Contains(hitGrid.EntityId))
-                    return true;
+                double dist = Vector3D.Distance(origin + offset, hit.Position);
+                if (nearest < 0 || dist < nearest)
+                    nearest = dist;
             }
 
-            return false;
+            return nearest;
         }
+
+        /// <summary>Convenience bool wrapper used by older callers.</summary>
+        public bool IsCollisionImminent(IMyShipController ship, double distance)
+            => NearestObstacleDistance(ship, distance) >= 0;
 
         // -----------------------------------------------------------------------
         // GRID SIZE / CONNECTED SUBGRIDS

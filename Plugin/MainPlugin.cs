@@ -59,7 +59,7 @@ namespace Plugin
             // No cockpit → hide HUD, still render gravity wells for external view
             if (ship == null)
             {
-                _hudDisplay.Draw(null, 0, 0, -1, -1, 0, false, null);
+                _hudDisplay.Draw(null, 0, 0, -1, -1, 0, false, -1, null);
                 _gravityWell.Draw(null, _telemetry.NearbyPlanets);
                 return;
             }
@@ -77,7 +77,8 @@ namespace Plugin
             _inputHandler.Update(ship, ref _lastRange);
 
             // --- FLIGHT COMPUTER (tunnel + collision) ---
-            bool isWarning = _flightComputer.DrawBrakingTunnel(ship);
+            double collisionDist = _flightComputer.DrawBrakingTunnel(ship);
+            bool   isWarning     = collisionDist >= 0;
 
             // --- GRAVITY WELL VISUALIZATION ---
             _gravityWell.Draw(ship, _telemetry.NearbyPlanets);
@@ -88,7 +89,7 @@ namespace Plugin
             // --- HUD ---
             _hudDisplay.Draw(
                 ship, mass, maxDecel, altitude, _lastRange,
-                gravityG, isWarning, _telemetry.CurrentApproach);
+                gravityG, isWarning, collisionDist, _telemetry.CurrentApproach);
         }
 
         public void Dispose()

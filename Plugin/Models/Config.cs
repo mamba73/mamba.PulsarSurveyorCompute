@@ -14,7 +14,7 @@ namespace Plugin.Models
         // ===================================================================
         /// <summary>Plugin version shown in terminal label and startup notification.
         /// This is set by the build system and should not be manually edited.</summary>
-        public string PluginVersion { get; set; } = "1.0.130";
+        public string PluginVersion { get; set; } = "1.0.131";
 
         // ===================================================================
         // TUNNEL
@@ -38,6 +38,26 @@ namespace Plugin.Models
         public float  TunnelRingSpacing   { get; set; } = 100f;
         /// <summary>Minimum speed (m/s) to render the braking tunnel.</summary>
         public float  MinSpeedForTunnel   { get; set; } = 5.0f;
+
+        /// <summary>
+        /// Fraction of stopping distance at which tunnel turns ORANGE (caution).
+        /// 1.0 = full stopping distance (very early warning).
+        /// Example: speed=100m/s, decel=5m/s² → stopping=1000m.
+        ///   OrangeThreshold=2.0 → orange when obstacle within 2000m (2× stopping dist).
+        ///   OrangeThreshold=1.0 → orange when obstacle within 1000m (exactly stopping dist).
+        /// Default 1.5 = warn at 1.5× stopping distance — gives plenty of reaction time.
+        /// Set higher (2.0–3.0) for early warning, lower (0.8) for late warning.
+        /// </summary>
+        public float  TunnelOrangeThreshold { get; set; } = 1.5f;
+
+        /// <summary>
+        /// Fraction of stopping distance at which tunnel turns RED (brake NOW).
+        /// Must be less than OrangeThreshold.
+        /// Default 0.6 = red when obstacle within 60% of stopping distance.
+        /// At that point you need to brake immediately or you will collide.
+        /// Set lower (0.3) if you trust your reaction time, higher (0.8) for safety.
+        /// </summary>
+        public float  TunnelRedThreshold    { get; set; } = 0.6f;
 
         // ===================================================================
         // HUD — WHAT TO SHOW
