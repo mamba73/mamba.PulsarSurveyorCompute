@@ -14,7 +14,7 @@ namespace Plugin.Models
         // ===================================================================
         /// <summary>Plugin version shown in terminal label and startup notification.
         /// This is set by the build system and should not be manually edited.</summary>
-        public string PluginVersion { get; set; } = "1.0.130";
+        public string PluginVersion { get; set; } = "1.0.132";
 
         // ===================================================================
         // TUNNEL
@@ -37,7 +37,7 @@ namespace Plugin.Models
         /// At 100 m/s → 20m. At 500 m/s → 100m. Default 80m works for most speeds.</summary>
         public float  TunnelRingSpacing   { get; set; } = 100f;
         /// <summary>Minimum speed (m/s) to render the braking tunnel.</summary>
-        public float  MinSpeedForTunnel   { get; set; } = 2.0f;
+        public float  MinSpeedForTunnel   { get; set; } = 5.0f;
 
         /// <summary>
         /// Fraction of stopping distance at which tunnel turns ORANGE (caution).
