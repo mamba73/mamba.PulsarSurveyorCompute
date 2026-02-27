@@ -14,7 +14,7 @@ namespace Plugin.Models
         // ===================================================================
         /// <summary>Plugin version shown in terminal label and startup notification.
         /// This is set by the build system and should not be manually edited.</summary>
-        public string PluginVersion { get; set; } = "1.0.131";
+        public string PluginVersion { get; set; } = "1.0.132";
 
         // ===================================================================
         // TUNNEL
@@ -88,7 +88,7 @@ namespace Plugin.Models
         /// </summary>
         /// <summary>Enable periodic planet data refresh. When false, planet info is
         /// computed once on cockpit entry and never updated. Enable if you jump between planets.</summary>
-        public bool PlanetRefreshEnabled { get; set; } = false;
+        public bool PlanetRefreshEnabled { get; set; } = true;
 
         /// <summary>How often (ticks) the planet selection reruns. 60 ticks = 1 second.
         /// Default 1800 = 30s. Reduce to 300 (5s) if you jump frequently.

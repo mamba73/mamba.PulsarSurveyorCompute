@@ -5,6 +5,7 @@ using Sandbox.Game.Entities;
 using Sandbox.ModAPI;
 using VRage.Game;
 using VRage.Game.ModAPI;
+using SpaceEngineers.Game.ModAPI;
 using VRage.Input;
 using VRage.ModAPI;
 using VRage.Utils;
@@ -84,45 +85,61 @@ namespace Plugin.Services
         // -----------------------------------------------------------------------
 
         /// <summary>
-        /// Fires a raycast along the ship's forward vector.
+        /// Fires a rangefinder raycast from the player's current view.
         ///
-        /// Hit dispatch:
-        ///   Planet   → shows planet info (name, surface gravity, atmosphere, distance)
-        ///              RANGE NOTE: LaserMaxRange = 50km. Planets are typically 1000–6000km
-        ///              away, so the laser will almost never reach them.
-        ///              → Use "Scan All Planets" button in Ore Detector terminal instead.
+        /// ONLY works when player is controlling:
+        ///   IMyCameraBlock     — dedicated camera block (any grid position)
+        ///   IMyLargeTurretBase — turret (any turret type)
         ///
-        ///   Asteroid → triggers AsteroidFullScanService.TryScan() — full async scan,
-        ///              shows Scanning...% progress, places GPS at asteroid center with
-        ///              all ore types combined. Skips if asteroid already scanned (cached).
+        /// If player is in a plain cockpit, shows a hint and does nothing.
+        /// This avoids the "own grid obstruction" problem — cameras and turrets
+        /// are positioned so their forward vector clears the ship geometry.
         ///
-        ///   Grid     → shows grid name, owner, faction, large/small, distance.
-        ///              Also creates a GPS marker at the hit point.
-        ///
-        ///   Miss     → "No target in range" notification.
+        /// Ray origin = controlled entity world position + 1m forward (clears block face).
+        /// Own-grid filter is still applied as a safety net for edge cases.
         /// </summary>
         private void PerformRangefinderScan(IMyShipController ship, out double range)
         {
             range = -1;
 
-            Vector3D start = ship.WorldMatrix.Translation + ship.WorldMatrix.Forward * 5.0;
-            Vector3D end   = start + ship.WorldMatrix.Forward * _config.LaserMaxRange;
+            // Resolve what the player is actually controlling right now
+            var controlled = MyAPIGateway.Session.Player?.Controller?.ControlledEntity;
 
-            // Raycast — then skip hits on own grid + connected subgrids
+            var camera = controlled as IMyCameraBlock;
+            var turret = controlled as IMyLargeTurretBase;
+
+            if (camera == null && turret == null)
+            {
+                // Plain cockpit — no clean ray origin available
+                MyAPIGateway.Utilities.ShowNotification(
+                    "[PSC] Laser works only from Camera or Turret view. " +
+                    "Enter a camera block or turret, then press T.",
+                    4000, "Yellow");
+                return;
+            }
+
+            // Get ray origin and direction from the controlled entity
+            MatrixD viewMatrix = camera != null
+                ? camera.WorldMatrix
+                : ((IMyEntity)turret).WorldMatrix;
+
+            Vector3D origin = viewMatrix.Translation + viewMatrix.Forward * 1.0;
+            Vector3D end    = origin + viewMatrix.Forward * _config.LaserMaxRange;
+
+            // Own-grid IDs — skip accidental self-hits (e.g. turret barrel geometry)
             var ownIds = Plugin.Services.PhysicsService.GetConnectedGridIds(ship.CubeGrid);
 
             IHitInfo hit;
-            bool gotHit = MyAPIGateway.Physics.CastRay(start, end, out hit);
+            bool gotHit = MyAPIGateway.Physics.CastRay(origin, end, out hit);
 
-            // Re-cast up to 3 times to skip own-grid hits (e.g. cockpit nose)
+            // Skip own-grid hits (up to 3 attempts)
             int attempts = 0;
             while (gotHit && attempts++ < 3)
             {
                 var skipGrid = hit.HitEntity?.GetTopMostParent() as IMyCubeGrid;
                 if (skipGrid != null && ownIds.Contains(skipGrid.EntityId))
                 {
-                    // Move start past this hit and cast again
-                    Vector3D newStart = hit.Position + ship.WorldMatrix.Forward * 0.5;
+                    Vector3D newStart = hit.Position + viewMatrix.Forward * 0.5;
                     gotHit = MyAPIGateway.Physics.CastRay(newStart, end, out hit);
                 }
                 else break;
@@ -136,7 +153,7 @@ namespace Plugin.Services
                 return;
             }
 
-            range = Vector3D.Distance(start, hit.Position);
+            range = Vector3D.Distance(origin, hit.Position);
 
             // --- PLANET ---
             MyPlanet planet = ResolvePlanet(hit, hit.Position);
