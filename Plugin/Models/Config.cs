@@ -14,7 +14,7 @@ namespace Plugin.Models
         // ===================================================================
         /// <summary>Plugin version shown in terminal label and startup notification.
         /// This is set by the build system and should not be manually edited.</summary>
-        public string PluginVersion { get; set; } = "1.0.134";
+        public string PluginVersion { get; set; } = "1.0.136";
 
         // ===================================================================
         // TUNNEL
@@ -102,7 +102,7 @@ namespace Plugin.Models
         public bool GravityWellShowCockpit  { get; set; } = true;
         /// <summary>Show gravity well sphere while in external/third-person view.
         /// Disable if external view causes lag (sphere draws many line segments).</summary>
-        public bool GravityWellShowExternal { get; set; } = false;
+        public bool GravityWellShowExternal { get; set; } = true;
 
         /// <summary>Color of the gravity well visualization rings (RGBA, 0–255 each).</summary>
         public SerializableVector4 GravityWellColor { get; set; }
@@ -114,7 +114,7 @@ namespace Plugin.Models
         /// Default: 0 (show whenever inside gravity well radius).
         /// Example: set to 500000 to start showing when within 500km of center.
         /// </summary>
-        public double GravityWellShowRadius { get; set; } = 0;
+        public double GravityWellShowRadius { get; set; } = 100;
 
         /// <summary>Number of points used to draw each circle of the gravity well sphere.
         /// More = smoother circle but more draw calls. Default 64.</summary>

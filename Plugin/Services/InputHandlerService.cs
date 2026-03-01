@@ -56,6 +56,12 @@ namespace Plugin.Services
         /// </summary>
         public void Update(IMyShipController ship, ref double range)
         {
+            // Block all key handling while any text input or GUI is open.
+            // Covers: chat, GPS rename, block rename, search boxes, any menu.
+            // Without this, typing "t" in chat fires the rangefinder.
+            if (MyAPIGateway.Gui.ChatEntryVisible) return;
+            if (MyAPIGateway.Gui.IsCursorVisible)  return;
+
             // --- Config dialog: Ctrl+Alt+/ ---
             if (MyAPIGateway.Input.IsNewKeyPressed(MyKeys.OemQuestion)
                 && MyAPIGateway.Input.IsAnyCtrlKeyPressed()

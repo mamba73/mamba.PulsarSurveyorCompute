@@ -56,8 +56,9 @@ namespace Plugin
 
             var ship = MyAPIGateway.Session.Player?.Controller?.ControlledEntity as IMyShipController;
 
-            // No cockpit → hide HUD, still render gravity wells for external view
-            if (ship == null)
+            // Treat static-grid controllers (desks, beds, decorative seats on stations)
+            // the same as "not in a cockpit" — no flight data, hide HUD.
+            if (ship == null || ship.CubeGrid.IsStatic)
             {
                 _hudDisplay.Draw(null, 0, 0, -1, -1, 0, false, -1, null);
                 _gravityWell.Draw(null, _telemetry.NearbyPlanets);
