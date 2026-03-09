@@ -4,6 +4,7 @@ using Sandbox.ModAPI;
 using VRage.Game.ModAPI;
 using Plugin.Services;
 using Plugin.Models;
+using Plugin.Utils;
 
 namespace Plugin
 {
@@ -26,6 +27,9 @@ namespace Plugin
 
         public void Init(object gameInstance)
         {
+            // Init logger first — all subsequent code can use LoggerUtil
+            LoggerUtil.Initialize(new Config().PluginVersion);
+
             _configService    = new ConfigService();
 
             _physics          = new PhysicsService(_configService);
@@ -95,6 +99,7 @@ namespace Plugin
 
         public void Dispose()
         {
+            LoggerUtil.Shutdown();
             _terminalControls?.Terminate();
             _hudDisplay?.Hide();
             _configService?.Save();
