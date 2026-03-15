@@ -7,11 +7,26 @@ import sys
 import glob
 from datetime import datetime
 
+BUILD_VERSION = "1.0.2" # Version of this build script itself — not related to plugin versioning.
+
 # ---------------------------------------------------------------------------
-# AUTOMATIC CONFIGURATION
+# AUTOMATIC CONFIGURATION - PULSAR PLUGIN BUILD & DEPLOY SCRIPT
+# ---------------------------------------------------------------------------
+# This script assumes a standard Pulsar plugin project structure and automates
+# version management, building, and deployment to the Pulsar AppData directory.
+# It is designed to be run from the root of the plugin project directory.
+#
+#  Pulsar plugin projects should follow a standard structure:
+#   - Root directory contains the .csproj file, version.txt, README.md, and the plugin manifest XML (if it exists).
+#   - Source code is contained in a "Plugin" subdirectory.
+#
 # Project name and all paths are derived from the .csproj file.
 # Nothing is hardcoded here except MSBuild path — adjust for your VS edition.
 # ---------------------------------------------------------------------------
+
+PROJECT_DESCRIPTION = "Advanced Space Engineers surveying and flight computer plugin."
+PROJECT_AUTHOR      = "mamba"
+
 csproj_files = glob.glob("*.csproj")
 if not csproj_files:
     print("[!] ERROR: No .csproj file found in current directory!")
@@ -33,8 +48,18 @@ VERSION_FILE = "version.txt"
 README_FILE  = "README.md"
 CONFIG_CS    = os.path.join("Plugin", "Models", "Config.cs")
 
+# ---------------------------------------------------------------------------
+# BUILD & DEPLOY FUNCTIONS
+# ---------------------------------------------------------------------------
 
-def ensure_xml_exists():
+print(f"""
+====================================================
+  MAMBA BUILD TOOL v{BUILD_VERSION} | {PROJECT_NAME}
+====================================================
+""")
+
+
+def ensure_xml_exists(v):
     """Creates a default Pulsar plugin manifest XML if one does not already exist."""
     if not os.path.exists(XML_SOURCE):
         print(f"[INFO] Creating default XML manifest: {XML_SOURCE}")
@@ -42,11 +67,41 @@ def ensure_xml_exists():
 <PluginData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="GitHubPlugin">
     <Id>{PROJECT_NAME}</Id>
     <FriendlyName>{PROJECT_NAME}</FriendlyName>
-    <Author>mamba</Author>
-    <Description>Advanced Space Engineers surveying and flight computer plugin.</Description>
+    <Author>{PROJECT_AUTHOR}</Author>
+    <Description>{PROJECT_DESCRIPTION}</Description>
+    <Version>{v}</Version>
 </PluginData>"""
         with open(XML_SOURCE, "w", encoding="utf-8") as f:
             f.write(xml_content)
+
+
+def update_xml_manifest(v):
+    """
+    Finds the <Version> tag in the plugin manifest XML and updates it.
+    If tags are missing, it inserts them to ensure Pulsar displays info correctly.
+    """
+    if not os.path.exists(XML_SOURCE):
+        return
+
+    with open(XML_SOURCE, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Update or insert Version
+    if "<Version>" in content:
+        content = re.sub(r"(<Version>)[^<]+(</Version>)", rf"\1{v}\2", content)
+    else:
+        content = content.replace("</PluginData>", f"    <Version>{v}</Version>\n</PluginData>")
+
+    # Ensure Description and Author exist for Pulsar UI
+    if "<Description>" not in content:
+        content = content.replace("</PluginData>", f"    <Description>{PROJECT_DESCRIPTION}</Description>\n</PluginData>")
+    
+    if "<Author>" not in content:
+        content = content.replace("</PluginData>", f"    <Author>{PROJECT_AUTHOR}</Author>\n</PluginData>")
+
+    with open(XML_SOURCE, "w", encoding="utf-8") as f:
+        f.write(content)
+    print(f"[OK] XML manifest version updated to {v}.")
 
 
 def get_version():
@@ -56,8 +111,8 @@ def get_version():
     """
     if not os.path.exists(VERSION_FILE):
         with open(VERSION_FILE, "w") as f:
-            f.write("1.0.0")
-        return "1.0.0"
+            f.write("0.0.1")
+        return "0.0.1"
 
     with open(VERSION_FILE, "r") as f:
         v = f.read().strip()
@@ -209,25 +264,32 @@ def deploy(v):
 # ENTRY POINT
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    ensure_xml_exists()
-    ver = get_version()
+    # Get version first so it's available for all functions
+    PROJECT_VERSION = get_version()
+
+    # Ensure XML manifest exists and is updated with the current version
+    ensure_xml_exists(PROJECT_VERSION)
+    update_xml_manifest(PROJECT_VERSION)
 
     # Update version in source BEFORE building — compiled binary and deployed
     # source will both contain the correct version string.
-    update_config_version(ver)
+    update_config_version(PROJECT_VERSION)
 
-    if run_build(ver):
-        update_readme_version(ver)
-        deploy(ver)
-        print(f"\n>>> Build & Deploy complete: v{ver} @ {datetime.now().strftime('%H:%M:%S')}")
+    if run_build(PROJECT_VERSION):
+        update_readme_version(PROJECT_VERSION)
+        deploy(PROJECT_VERSION)
+        print(f"\n>>> Build & Deploy complete: v{PROJECT_VERSION} @ {datetime.now().strftime('%H:%M:%S')}")
     else:
         print(f"\n[!] Build FAILED — deployment skipped. Version file rolled back.")
         try:
-            parts = ver.split(".")
+            parts = PROJECT_VERSION.split(".")
             rolled = ".".join(parts[:-1] + [str(int(parts[-1]) - 1)])
             with open(VERSION_FILE, "w") as f:
                 f.write(rolled)
-            update_config_version(rolled)  # keep Config.cs in sync with version.txt
+            
+            # Rollback file contents to stay in sync
+            update_config_version(rolled)
+            update_xml_manifest(rolled)
             print(f"[INFO] Version rolled back to {rolled}.")
         except Exception:
             pass

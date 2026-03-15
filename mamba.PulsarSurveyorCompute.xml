@@ -6,4 +6,5 @@
     <Author>mamba</Author>
     <Tooltip>Advanced trajectory analysis and planetary surveying.</Tooltip>
     <Description>Standalone plugin for ship physics and predictive 3D rendering.</Description>
+    <Version>1.0.148</Version>
 </PluginData>
