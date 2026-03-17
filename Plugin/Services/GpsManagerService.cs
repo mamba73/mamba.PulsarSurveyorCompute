@@ -9,13 +9,14 @@ using VRage.Game.ModAPI;
 using VRage.ModAPI;
 using VRage.Voxels;
 using VRageMath;
+using Plugin.Config;
 using Plugin.Models;
 
 namespace Plugin.Services
 {
     public class GpsManagerService
     {
-        private readonly Config _config;
+        private readonly PluginConfig _config;
 
         private readonly Dictionary<long, ResourceMarker> _asteroidCache
             = new Dictionary<long, ResourceMarker>();
@@ -30,7 +31,7 @@ namespace Plugin.Services
         /// </summary>
         public float PulsarScanRange;
 
-        public GpsManagerService(Config config)
+        public GpsManagerService(PluginConfig config)
         {
             _config         = config;
             PulsarScanRange = config.PulsarScanRange;
@@ -44,6 +45,47 @@ namespace Plugin.Services
         /// Manual sector scan. Scans all asteroid voxel maps within PulsarScanRange.
         /// Grids excluded — detected only via laser (T key).
         /// </summary>
+
+        /// <summary>
+        /// <param name="detectorBlock">The detector block to use as the scan center, or null to use the player's position.</param>
+        /// </summary>
+        public void ForceSectorScan(IMyTerminalBlock detectorBlock)
+        {
+            Vector3D scanCenter;
+            if (detectorBlock != null)
+            {
+                scanCenter = detectorBlock.WorldMatrix.Translation;
+            }
+            else
+            {
+                if (MyAPIGateway.Session?.Player?.Character == null)
+                    return;
+                scanCenter = MyAPIGateway.Session.Player.Character.WorldMatrix.Translation;
+            }
+
+            int before = _asteroidCache.Count;
+            var sphere = new BoundingSphereD(scanCenter, PulsarScanRange);
+            var maps = new List<IMyVoxelBase>();
+            MyAPIGateway.Session.VoxelMaps.GetInstances(
+                maps,
+                m => m is IMyVoxelMap && sphere.Intersects(m.WorldAABB)
+            );
+
+            foreach (var map in maps)
+            {
+                // ISPRAVLJENO: Pravilno pozivanje postojeće metode uz cast u IMyVoxelMap
+                ScanVoxelStorage((IMyVoxelMap)map);
+            }
+
+            int found = _asteroidCache.Count - before;
+            MyAPIGateway.Utilities.ShowNotification(
+                $"[PSC] Sector Scan: {maps.Count} asteroids checked, {found} new markers.",
+                2000,
+                MyFontEnum.Green
+            );
+        }
+
+        /*
         public void ForceSectorScan(IMyTerminalBlock detectorBlock)
         {
             int before = _asteroidCache.Count;
@@ -54,6 +96,7 @@ namespace Plugin.Services
                 $"[Pulsar] Scan complete — {found} new deposits ({_asteroidCache.Count} total, {PulsarScanRange:N0}m range).",
                 4000, MyFontEnum.Green);
         }
+        //*/
 
         /// <summary>Iterates ALL game entities to find and GPS-mark every planet.</summary>
         public void ScanAllPlanets()

@@ -1,6 +1,7 @@
 // Plugin/Services/HudDisplayService.cs
 using System;
 using System.Text;
+using Plugin.Config;
 using Plugin.Models;
 using Sandbox.ModAPI;
 using VRage.Game;
@@ -112,7 +113,7 @@ namespace Plugin.Services
 
         private void BuildLcdText(
             float mass, float maxDecel, double altitude, double range,
-            float gravityG, bool isWarning, double collisionDist, PlanetApproachInfo ap, Config cfg, int hudState)
+            float gravityG, bool isWarning, double collisionDist, PlanetApproachInfo ap, PluginConfig cfg, int hudState)
         {
             // Collision countdown on LCD
             if (isWarning && collisionDist >= 0)
@@ -196,7 +197,7 @@ namespace Plugin.Services
 
         private static string BuildStatusLine(
             float maxDecel, double altitude, float gravityG,
-            bool isWarning, double collisionDist, PlanetApproachInfo ap, Config cfg)
+            bool isWarning, double collisionDist, PlanetApproachInfo ap, PluginConfig cfg)
         {
             var sb = new StringBuilder();
 

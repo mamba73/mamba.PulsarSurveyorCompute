@@ -3,6 +3,7 @@ using VRage.Plugins;
 using Sandbox.ModAPI;
 using VRage.Game.ModAPI;
 using Plugin.Services;
+using Plugin.Config;
 using Plugin.Models;
 using Plugin.Utils;
 
@@ -21,14 +22,16 @@ namespace Plugin
         private TerminalControlService _terminalControls;
         private GravityWellRenderer    _gravityWell;
         private AsteroidFullScanService _asteroidScanner;
+        private ChatCommandService _chatCommands;
 
         private double _lastRange   = -1;
         private bool   _initialized = false;
+        private bool _terminalInitialized = false;
 
         public void Init(object gameInstance)
         {
             // Init logger first — all subsequent code can use LoggerUtil
-            LoggerUtil.Initialize(new Config().PluginVersion);
+            LoggerUtil.Initialize(new PluginConfig().PluginVersion);
 
             _configService    = new ConfigService();
 
@@ -42,6 +45,7 @@ namespace Plugin
             _audio            = new AudioService();
             _terminalControls = new TerminalControlService(_gpsManager, _configService);
             _gravityWell      = new GravityWellRenderer(_configService);
+            _chatCommands     = new ChatCommandService(_gpsManager);
 
             _initialized = true;
         }
@@ -56,7 +60,15 @@ namespace Plugin
 
             if (MyAPIGateway.Session == null) return;
 
-            _terminalControls.Initialize();
+            _chatCommands.Register(); // Ensure chat commands are registered after session is ready. Safe to call multiple times due to internal flag.
+
+            // Check if TerminalControls is ready and not already initialized
+            if (!_terminalInitialized && MyAPIGateway.TerminalControls != null)
+            {
+                _terminalControls.Initialize(); // Called only once
+                _terminalInitialized = true;   // Close gate after first call
+                LoggerUtil.Info("Terminal controls successfully initialized.");
+            }
 
             var ship = MyAPIGateway.Session.Player?.Controller?.ControlledEntity as IMyShipController;
 
@@ -103,6 +115,7 @@ namespace Plugin
             _terminalControls?.Terminate();
             _hudDisplay?.Hide();
             _configService?.Save();
+            _chatCommands?.Unregister();
         }
     }
 }

@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Xml.Serialization;
+using Plugin.Config;
 using Plugin.Models;
 using Plugin.Utils;
 
@@ -32,7 +33,7 @@ namespace Plugin.Services
         private bool _loaded = false;
 
         /// <summary>Active configuration. Non-null from construction.</summary>
-        public Config Data { get; private set; } = new Config();
+        public PluginConfig Data { get; private set; } = new PluginConfig();
 
         public void TryLoadOnce()
         {
@@ -48,14 +49,14 @@ namespace Plugin.Services
                 {
                     using (var reader = new StreamReader(ConfigPath))
                     {
-                        var ser = new XmlSerializer(typeof(Config));
-                        Data = (Config)ser.Deserialize(reader);
+                        var ser = new XmlSerializer(typeof(PluginConfig));
+                        Data = (PluginConfig)ser.Deserialize(reader);
                     }
                     LoggerUtil.Info($"Config loaded from {ConfigPath}");
                 }
                 else
                 {
-                    Data = new Config();
+                    Data = new PluginConfig();
                     Save();
                     LoggerUtil.Info($"Config created with defaults at {ConfigPath}");
                 }
@@ -63,7 +64,7 @@ namespace Plugin.Services
             catch (Exception ex)
             {
                 LoggerUtil.Error($"Config load error: {ex.Message} — using defaults.");
-                Data = new Config();
+                Data = new PluginConfig();
             }
             finally
             {
@@ -78,7 +79,7 @@ namespace Plugin.Services
                 Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath));
                 using (var writer = new StreamWriter(ConfigPath))
                 {
-                    var ser = new XmlSerializer(typeof(Config));
+                    var ser = new XmlSerializer(typeof(PluginConfig));
                     ser.Serialize(writer, Data);
                 }
                 LoggerUtil.Info("Config saved.");

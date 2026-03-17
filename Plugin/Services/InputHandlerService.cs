@@ -9,13 +9,14 @@ using VRage.Input;
 using VRage.ModAPI;
 using VRage.Utils;
 using VRageMath;
+using Plugin.Config;
 using Plugin.Models;
 
 namespace Plugin.Services
 {
     public class InputHandlerService
     {
-        private readonly Config                  _config;
+        private readonly PluginConfig _config;
         private readonly ConfigService           _configService;
         private readonly PhysicsService          _physics;
         private readonly GpsManagerService       _gpsManager;
@@ -24,8 +25,11 @@ namespace Plugin.Services
         // Config dialog state — prevents re-opening while open
         private bool _configDialogOpen = false;
 
+        // Flag to track if chat hook is already registered.
+        private bool _chatHookRegistered = false;
+
         public InputHandlerService(
-            Config config,
+            PluginConfig config,
             ConfigService configService,
             PhysicsService physics,
             GpsManagerService gpsManager,

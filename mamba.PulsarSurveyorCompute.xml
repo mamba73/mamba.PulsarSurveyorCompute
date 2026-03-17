@@ -1,10 +1,16 @@
-<?xml version="1.0" encoding="utf-8"?>
-<PluginData xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="GitHubPlugin">
-    <Id>mamba.PulsarSurveyorCompute</Id>
-    <FriendlyName>mamba Surveyor Compute</FriendlyName>
-    <Author>mamba</Author>
-    <Tooltip>Advanced trajectory analysis and planetary surveying.</Tooltip>
-    <Description>Standalone plugin for ship physics and predictive 3D rendering.</Description>
-    <Version>1.0.148</Version>
+<?xml version="1.0"?>
+<PluginData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="GitHubPlugin">
+  <Id>mamba73/mamba.TorchDiscordSync.Plugin</Id>
+  
+  <FriendlyName>mamba.PulsarSurveyorCompute</FriendlyName>
+  
+  <Author>mamba</Author>
+
+  <Tooltip>Mamba Build Tool Template</Tooltip>
+
+  <Description>Base template for Pulsar/Torch plugins with advanced automation.</Description>
+  
+  <Version>1.0.159</Version>
+
+  <Commit>56741e6d790da37e018204a06dc8677e5885ce4d</Commit>
 </PluginData>

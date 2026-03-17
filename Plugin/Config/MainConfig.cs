@@ -2,19 +2,19 @@
 using System.Xml.Serialization;
 using VRageMath;
 
-namespace Plugin.Models
+namespace Plugin.Config
 {
     /// <summary>
     /// Persistent configuration. RULE: All tunable values live here — nothing hardcoded in service logic.
     /// </summary>
-    public class Config
+    public class PluginConfig
     {
         // ===================================================================
         // VERSION (read-only display — do not edit in config.xml)
         // ===================================================================
         /// <summary>Plugin version shown in terminal label and startup notification.
         /// This is set by the build system and should not be manually edited.</summary>
-        public string PluginVersion { get; set; } = "1.0.148";
+        public string PluginVersion { get; set; } = "1.0.159";
 
         // ===================================================================
         // TUNNEL
